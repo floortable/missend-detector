@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import logging
 import os
 import re
 import time
@@ -231,8 +232,13 @@ def parse_llm_judgement(text):
     return result, reason
 
 
-def notify_teams(case_id, llm_text, llm_json, webhook_url):
-    if not webhook_url:
+def notify_teams(case_id, llm_text, llm_json, webhook_urls):
+    if not webhook_urls:
+        return
+    if isinstance(webhook_urls, str):
+        webhook_urls = [webhook_urls]
+    webhook_urls = [url for url in webhook_urls if url]
+    if not webhook_urls:
         return
     result, reason = parse_llm_judgement(llm_text)
     # 不一致アラートは専用のサマリーを使う。
@@ -245,7 +251,7 @@ def notify_teams(case_id, llm_text, llm_json, webhook_url):
         reason=reason,
         llm_text=llm_text,
     )
-    send_adaptive_card([webhook_url], card_body, summary=summary)
+    send_adaptive_card(webhook_urls, card_body, summary=summary)
 
 
 def build_adaptive_card_body(case_id, result, reason, llm_text):
@@ -387,46 +393,61 @@ def process_case(case_id, settings):
     work_dir = settings["work_dir"]
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    case_text_path = fetch_case_text(
-        case_id,
-        base_url=settings["base_url"],
-        work_dir=work_dir,
-        browser_settings=settings["browser"],
-        login_settings=settings["login"],
-    )
+    try:
+        case_text_path = fetch_case_text(
+            case_id,
+            base_url=settings["base_url"],
+            work_dir=work_dir,
+            browser_settings=settings["browser"],
+            login_settings=settings["login"],
+        )
 
-    case_text = case_text_path.read_text(encoding="utf-8")
-    entries = build_case_json(case_text, settings["max_chars"])
-    output_path = work_dir / f"{case_id}.json"
-    output_path.write_text(
-        json.dumps(entries, ensure_ascii=False, indent=4),
-        encoding="utf-8",
-    )
+        case_text = case_text_path.read_text(encoding="utf-8")
+        logging.debug("Case ID %s: fetched text length=%s", case_id, len(case_text))
+        logging.debug("Case ID %s: fetched text preview=%r", case_id, case_text[:800])
 
-    # プロンプトのスキーマ（type/created_on/text）に合わせる。
-    llm_entries = [
-        {
-            "type": entry["type"].lower(),
-            "created_on": entry["date"],
-            "text": entry["data"],
-        }
-        for entry in entries
-    ]
-    llm_input = json.dumps(llm_entries, ensure_ascii=False, indent=2)
-    llm_text = call_llm(case_id, llm_input, settings["llm"])
-    llm_json = parse_llm_json(llm_text)
-    judgement, _reason = parse_llm_judgement(llm_text)
+        entries = build_case_json(case_text, settings["max_chars"])
+        logging.debug("Case ID %s: extracted entries=%s", case_id, len(entries))
+        if not entries or entries[-1]["type"].lower() != "answer":
+            logging.info(
+                "case_id=%s result=skipped reason=last_entry_not_answer",
+                case_id,
+            )
+            return
+        output_path = work_dir / f"{case_id}.json"
+        output_path.write_text(
+            json.dumps(entries, ensure_ascii=False, indent=4),
+            encoding="utf-8",
+        )
 
-    notify_teams(case_id, llm_text, llm_json, settings["teams"]["default"])
+        # プロンプトのスキーマ（type/created_on/text）に合わせる。
+        llm_entries = [
+            {
+                "type": entry["type"].lower(),
+                "created_on": entry["date"],
+                "text": entry["data"],
+            }
+            for entry in entries
+        ]
+        llm_input = json.dumps(llm_entries, ensure_ascii=False, indent=2)
+        logging.debug("Case ID %s: llm input=%s", case_id, llm_input)
+        llm_text = call_llm(case_id, llm_input, settings["llm"])
+        llm_json = parse_llm_json(llm_text)
+        judgement, _reason = parse_llm_judgement(llm_text)
 
-    decision_value = None
-    if judgement:
-        decision_value = judgement
-    elif llm_json and isinstance(llm_json, dict):
-        decision_value = str(llm_json.get("decision", "")).lower()
+        decision_value = None
+        if judgement:
+            decision_value = judgement
+        elif llm_json and isinstance(llm_json, dict):
+            decision_value = str(llm_json.get("decision", "")).lower()
 
-    if decision_value in {"却下", "reject", "rejected", "ng", "fail"}:
-        notify_teams(case_id, llm_text, llm_json, settings["teams"]["reject"])
+        webhooks = [settings["teams"]["default"]]
+        if decision_value in {"却下", "reject", "rejected", "ng", "fail"}:
+            webhooks.append(settings["teams"]["reject"])
+        notify_teams(case_id, llm_text, llm_json, webhooks)
+        logging.info("case_id=%s result=%s", case_id, decision_value or "unknown")
+    except Exception:
+        logging.exception("Case ID %s: failed to process", case_id)
 
 
 def monitor_directory(settings):
@@ -441,19 +462,22 @@ def monitor_directory(settings):
                 processed.add(path.name)
 
     while True:
-        for path in sorted(monitor_dir.iterdir()):
-            if not path.is_file():
-                continue
-            match = CASE_ID_RE.match(path.name)
-            if not match:
-                continue
-            if path.name in processed:
-                continue
-            if not wait_for_stable_size(path):
-                continue
-            case_id = match.group("case_id")
-            process_case(case_id, settings)
-            processed.add(path.name)
+        try:
+            for path in sorted(monitor_dir.iterdir()):
+                if not path.is_file():
+                    continue
+                match = CASE_ID_RE.match(path.name)
+                if not match:
+                    continue
+                if path.name in processed:
+                    continue
+                if not wait_for_stable_size(path):
+                    continue
+                case_id = match.group("case_id")
+                process_case(case_id, settings)
+                processed.add(path.name)
+        except Exception:
+            logging.exception("Monitor loop error")
         time.sleep(settings["poll_interval"])
 
 
@@ -503,12 +527,24 @@ def load_settings():
             "default": os.environ.get("TEAMS_WEBHOOK_URL", ""),
             "reject": os.environ.get("TEAMS_REJECT_WEBHOOK_URL", ""),
         },
+        "logging": {
+            "enabled": os.environ.get("LOG_ENABLED", "true").lower()
+            in {"1", "true", "yes"},
+            "level": os.environ.get("LOG_LEVEL", "INFO").upper(),
+        },
     }
 
 
 def main():
     load_dotenv()
     settings = load_settings()
+    if settings["logging"]["enabled"]:
+        logging.basicConfig(
+            level=settings["logging"]["level"],
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+    else:
+        logging.disable(logging.CRITICAL)
     monitor_directory(settings)
 
 
