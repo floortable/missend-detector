@@ -724,6 +724,9 @@ def monitor_directory(settings):
                     return
         except Exception:
             logging.exception("Monitor loop error")
+        if STOP_REQUESTED:
+            logging.info("停止要求により監視を終了します。")
+            return
         time.sleep(settings["poll_interval"])
 
 
