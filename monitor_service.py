@@ -588,13 +588,13 @@ def process_case(case_id, settings):
                     return
                 entries = entries[: last_answer_index + 1]
                 logging.info(
-                    "case_id=%s result=partial reason=last_entry_not_answer entries=%s",
+                    "case_id=%s result=partial reason=newer_non_answer entries=%s",
                     case_id,
                     len(entries),
                 )
             else:
                 logging.info(
-                    "case_id=%s result=skipped reason=last_entry_not_answer",
+                    "case_id=%s result=skipped reason=newer_non_answer",
                     case_id,
                 )
                 return
