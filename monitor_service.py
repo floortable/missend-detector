@@ -5,6 +5,7 @@ import os
 import re
 import time
 import signal
+import sys
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -55,10 +56,15 @@ DEFAULT_LLM_PROMPT = """あなたはサポートチケットの内容整合性�
 """
 
 STOP_REQUESTED = False
+FORCE_STOP = False
 
 
 def handle_stop_signal(signum, _frame):
-    global STOP_REQUESTED
+    global STOP_REQUESTED, FORCE_STOP
+    if STOP_REQUESTED:
+        FORCE_STOP = True
+        logging.error("強制停止シグナル(%s)を受信しました。即時終了します。", signum)
+        sys.exit(1)
     STOP_REQUESTED = True
     logging.info("停止シグナル(%s)を受信しました。現在の処理が終わり次第停止します。", signum)
 
@@ -432,6 +438,8 @@ def wait_for_stable_size(path, retries=5, interval=1.0):
     # 書き込み中のファイルを読まないようにする。
     last_size = -1
     for _ in range(retries):
+        if STOP_REQUESTED:
+            return False
         try:
             size = path.stat().st_size
         except FileNotFoundError:
