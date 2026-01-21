@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import logging
 import os
 import re
 from pathlib import Path
@@ -25,6 +26,7 @@ def normalize_url(url):
 
 def login_if_needed(page, login_url, username, password, selectors):
     if normalize_url(page.url).startswith(normalize_url(login_url)):
+        logging.info("ログイン画面を検出しました。ログインを試みます。")
         page.fill(selectors["username"], username)
         page.fill(selectors["password"], password)
         page.click(selectors["submit"])
@@ -34,6 +36,7 @@ def login_if_needed(page, login_url, username, password, selectors):
                 timeout=30000,
             )
         except Exception:
+            logging.debug("ログイン後のURL遷移を検出できませんでした。")
             pass
         page.wait_for_load_state("load")
 
@@ -94,7 +97,26 @@ def main():
         default=os.environ.get("LOGIN_PASSWORD", "password"),
         help="ログインパスワード (default: env LOGIN_PASSWORD or password)",
     )
+    parser.add_argument(
+        "--log-enabled",
+        action="store_true",
+        default=os.environ.get("LOG_ENABLED", "true").lower() in {"1", "true", "yes"},
+        help="ログ出力を有効にします (default: env LOG_ENABLED)",
+    )
+    parser.add_argument(
+        "--log-level",
+        default=os.environ.get("LOG_LEVEL", "INFO").upper(),
+        help="ログレベル (default: env LOG_LEVEL or INFO)",
+    )
     args = parser.parse_args()
+
+    if args.log_enabled:
+        logging.basicConfig(
+            level=args.log_level,
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+    else:
+        logging.disable(logging.CRITICAL)
 
     case_id = args.case_id or input("8桁のCase IDを入力してください: ").strip()
     if not validate_case_id(case_id):
@@ -107,6 +129,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     url = build_url(base_url, case_id)
+    logging.debug("case_id=%s url=%s output_dir=%s", case_id, url, output_dir)
     selectors = {
         "username": os.environ.get("LOGIN_USERNAME_SELECTOR", "input[name='username']"),
         "password": os.environ.get("LOGIN_PASSWORD_SELECTOR", "input[name='password']"),
@@ -121,6 +144,7 @@ def main():
 
     with sync_playwright() as p:
         if args.user_data_dir:
+            logging.debug("Launching persistent context: %s", args.user_data_dir)
             context = p.chromium.launch_persistent_context(
                 user_data_dir=args.user_data_dir,
                 channel=args.channel,
@@ -129,6 +153,7 @@ def main():
             )
             page = context.pages[0] if context.pages else context.new_page()
         else:
+            logging.debug("Launching browser (non-persistent)")
             browser = p.chromium.launch(
                 channel=args.channel,
                 headless=args.headless,
@@ -138,6 +163,7 @@ def main():
             page = context.new_page()
 
         try:
+            logging.info("ページへアクセスします: %s", url)
             page.goto(url, wait_until="load", timeout=30000)
             login_if_needed(
                 page,
@@ -147,13 +173,16 @@ def main():
                 selectors=selectors,
             )
             if normalize_url(page.url).startswith(normalize_url(args.login_url)):
+                logging.info("ログインページに留まっているため再アクセスします: %s", url)
                 page.goto(url, wait_until="load", timeout=30000)
             page_source = page.inner_text("body")
+            logging.debug("取得した本文文字数=%s", len(page_source))
         finally:
             context.close()
 
     output_path = output_dir / f"{case_id}.txt"
     output_path.write_text(page_source, encoding="utf-8")
+    logging.info("保存しました: %s", output_path)
     print(f"保存しました: {output_path}")
 
 
