@@ -123,7 +123,7 @@ def main():
     parser.add_argument(
         "case_id",
         nargs="?",
-        help="8桁のCase ID。未指定の場合は入力を促します。",
+        help="Case ID。未指定の場合は入力を促します。",
     )
     parser.add_argument(
         "--case-id-digits",
@@ -247,7 +247,8 @@ def main():
     else:
         logging.disable(logging.CRITICAL)
 
-    case_id = args.case_id or input("Case IDを入力してください: ").strip()
+    prompt = f"{args.case_id_digits}桁のCase IDを入力してください: "
+    case_id = args.case_id or input(prompt).strip()
     if not validate_case_id(case_id, args.case_id_digits):
         raise SystemExit(f"Case IDは{args.case_id_digits}桁の数字で指定してください。")
 
