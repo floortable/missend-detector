@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -31,15 +32,19 @@ def build_patterns():
 
 
 def parse_entries(text, separator_re, header_re, question_keyword, answer_keyword):
-    lines = [line.rstrip("\n") for line in text.splitlines()]
+    lines = [line.rstrip("\r\n") for line in text.splitlines()]
     entries = []
     i = 0
+    separator_hits = 0
+    header_hits = 0
+    header_misses = []
 
     while i < len(lines):
         if not separator_re.match(lines[i]):
             i += 1
             continue
 
+        separator_hits += 1
         i += 1
         while i < len(lines) and lines[i] == "":
             i += 1
@@ -62,8 +67,11 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
             i += 1
 
         if not header_match:
+            if len(header_misses) < 5:
+                header_misses.append(header)
             continue
 
+        header_hits += 1
         entry_type_raw = header_match.group("type")
         entry_type = (
             "Question"
@@ -79,11 +87,27 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
             }
         )
 
+    logging.debug(
+        "parse_entries: lines=%s separator_hits=%s header_hits=%s entries=%s",
+        len(lines),
+        separator_hits,
+        header_hits,
+        len(entries),
+    )
+    if header_misses:
+        logging.debug("ヘッダー判定に失敗した例: %s", header_misses)
     return entries
 
 
 def main():
     load_dotenv()
+    if os.environ.get("LOG_ENABLED", "true").lower() in {"1", "true", "yes"}:
+        logging.basicConfig(
+            level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+    else:
+        logging.disable(logging.CRITICAL)
     case_id_digits = int(os.environ.get("CASE_ID_DIGITS", "8") or "8")
     parser = argparse.ArgumentParser(
         description="Case IDのテキストからQUESTION/ANSWERを抽出してJSON出力します。"
@@ -116,7 +140,15 @@ def main():
     if not case_id:
         raise SystemExit("Case IDを特定できません。--case-idを指定してください。")
     text = input_path.read_text(encoding="utf-8")
+    logging.debug("入力ファイル: %s 文字数=%s", input_path, len(text))
     separator_re, header_re, question_keyword, answer_keyword = build_patterns()
+    logging.debug(
+        "separator_pattern=%r header_pattern=%r question_keyword=%r answer_keyword=%r",
+        separator_re.pattern,
+        header_re.pattern,
+        question_keyword,
+        answer_keyword,
+    )
     entries = parse_entries(text, separator_re, header_re, question_keyword, answer_keyword)
 
     output_text = json.dumps(entries, ensure_ascii=False, indent=4)
