@@ -17,17 +17,17 @@ DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/(?:\d{2}/\d{2}|\d{4})\s+\d{1,2}:\d{2}"
 from env_loader import load_dotenv
 
 
-def normalize_keywords(value, default_value):
-    raw = value or default_value
-    items = []
-    for item in raw.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        normalized = unicodedata.normalize("NFKC", item)
-        normalized = re.sub(r"\s+", " ", normalized).strip()
-        items.append(normalized)
-    return items
+    def normalize_keywords(value, default_value):
+        raw = value or default_value
+        items = []
+        for item in raw.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            normalized = unicodedata.normalize("NFKC", item)
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+            items.append(normalized)
+        return items
 
 
 def normalize_header_text(text):
@@ -74,6 +74,7 @@ def parse_entries(text, separator_re, date_re, question_keyword, answer_keyword)
 
         header = lines[i]
         header_norm = normalize_header_text(header)
+        header_compact = header_norm.replace(" ", "")
         header_match = date_re.search(header_norm)
         i += 1
 
@@ -96,14 +97,18 @@ def parse_entries(text, separator_re, date_re, question_keyword, answer_keyword)
         header_hits += 1
         entry_type_raw = None
         entry_type = "Unknown"
+        header_norm_lower = header_norm.lower()
+        header_compact_lower = header_compact.lower()
         for keyword in question_keyword:
-            if keyword.lower() in header_norm.lower():
+            keyword_compact = keyword.replace(" ", "")
+            if keyword.lower() in header_norm_lower or keyword_compact.lower() in header_compact_lower:
                 entry_type_raw = keyword
                 entry_type = "Question"
                 break
         if entry_type == "Unknown":
             for keyword in answer_keyword:
-                if keyword.lower() in header_norm.lower():
+                keyword_compact = keyword.replace(" ", "")
+                if keyword.lower() in header_norm_lower or keyword_compact.lower() in header_compact_lower:
                     entry_type_raw = keyword
                     entry_type = "Answer"
                     break
