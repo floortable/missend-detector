@@ -11,8 +11,8 @@ from playwright.sync_api import sync_playwright
 from env_loader import load_dotenv
 
 
-def validate_case_id(case_id):
-    return bool(re.fullmatch(r"\d{8}", case_id))
+def validate_case_id(case_id, digits):
+    return bool(re.fullmatch(rf"\d{{{digits}}}", case_id))
 
 
 def build_url(base_url, case_id):
@@ -125,6 +125,12 @@ def main():
         help="8桁のCase ID。未指定の場合は入力を促します。",
     )
     parser.add_argument(
+        "--case-id-digits",
+        type=int,
+        default=int(os.environ.get("CASE_ID_DIGITS", "8") or "8"),
+        help="Case IDの桁数 (default: env CASE_ID_DIGITS or 8)",
+    )
+    parser.add_argument(
         "--base-url",
         default=os.environ.get("BASE_URL", "http://localhost:8080/"),
         help="BaseURL (default: env BASE_URL or http://localhost:8080/)",
@@ -209,9 +215,9 @@ def main():
     else:
         logging.disable(logging.CRITICAL)
 
-    case_id = args.case_id or input("8桁のCase IDを入力してください: ").strip()
-    if not validate_case_id(case_id):
-        raise SystemExit("Case IDは8桁の数字で指定してください。")
+    case_id = args.case_id or input("Case IDを入力してください: ").strip()
+    if not validate_case_id(case_id, args.case_id_digits):
+        raise SystemExit(f"Case IDは{args.case_id_digits}桁の数字で指定してください。")
 
     base_url = args.base_url
     default_work_dir = Path(__file__).resolve().parent / "work"
