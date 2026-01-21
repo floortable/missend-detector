@@ -474,7 +474,8 @@ def process_case(case_id, settings):
         webhooks = [settings["teams"]["default"]]
         if decision_value in {"却下", "reject", "rejected", "ng", "fail"}:
             webhooks.append(settings["teams"]["reject"])
-        notify_teams(case_id, llm_text, llm_json, webhooks)
+        if settings["teams"]["enabled"]:
+            notify_teams(case_id, llm_text, llm_json, webhooks)
         logging.info("case_id=%s result=%s", case_id, decision_value or "unknown")
     except Exception:
         logging.exception("Case ID %s: failed to process", case_id)
@@ -559,6 +560,8 @@ def load_settings():
             "timeout": int(os.environ.get("LLM_TIMEOUT", "60")),
         },
         "teams": {
+            "enabled": os.environ.get("TEAMS_ENABLED", "true").lower()
+            in {"1", "true", "yes"},
             "default": os.environ.get("TEAMS_WEBHOOK_URL", ""),
             "reject": os.environ.get("TEAMS_REJECT_WEBHOOK_URL", ""),
         },
