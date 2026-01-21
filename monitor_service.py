@@ -365,13 +365,13 @@ def call_llm(case_id, entries_payload, settings):
     if settings["api_key"]:
         headers["Authorization"] = f"Bearer {settings['api_key']}"
 
-    cert_file = settings.get("cert_file") or None
+    ca_bundle = settings.get("ca_bundle") or None
     response = requests.post(
         build_llm_url(settings["base_url"]),
         headers=headers,
         json=request_body,
         timeout=settings["timeout"],
-        cert=cert_file,
+        verify=ca_bundle or True,
     )
     response.raise_for_status()
     data = response.json()
@@ -742,7 +742,7 @@ def load_settings():
             "prompt_file": os.environ.get("LLM_PROMPT_FILE", ""),
             "temperature": float(os.environ.get("LLM_TEMPERATURE", "0.2")),
             "timeout": int(os.environ.get("LLM_TIMEOUT", "60")),
-            "cert_file": os.environ.get("LLM_CERT_FILE", ""),
+            "ca_bundle": os.environ.get("LLM_CERT_FILE", ""),
             "allow_partial": os.environ.get("LLM_ALLOW_PARTIAL", "").lower()
             in {"1", "true", "yes"},
         },
