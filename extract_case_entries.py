@@ -11,7 +11,7 @@ from pathlib import Path
 DEFAULT_SEPARATOR_PATTERN = r"^ー+$"
 DEFAULT_QUESTION_KEYWORD = "QUESTION"
 DEFAULT_ANSWER_KEYWORD = "ANSWER"
-DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}"
+DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/(?:\d{2}/\d{2}|\d{4})\s+\d{1,2}:\d{2}"
 
 
 from env_loader import load_dotenv
