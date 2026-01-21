@@ -127,8 +127,21 @@ def fetch_case_text(case_id, base_url, work_dir, browser_settings, login_setting
             )
             if normalize_url(page.url).startswith(normalize_url(login_settings["url"])):
                 page.goto(url, wait_until="load", timeout=30000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except Exception:
+                logging.debug("networkidle待機がタイムアウトしました。")
+            if browser_settings["wait_seconds"] > 0:
+                logging.info("ページ表示後に%s秒待機します。", browser_settings["wait_seconds"])
+                page.wait_for_timeout(browser_settings["wait_seconds"] * 1000)
             body_text = page.inner_text("body")
         finally:
+            if browser_settings["keep_open"]:
+                logging.info("ブラウザを閉じる前に待機します。Enterで終了します。")
+                try:
+                    input()
+                except EOFError:
+                    pass
             context.close()
 
     output_path.write_text(body_text, encoding="utf-8")
@@ -568,6 +581,10 @@ def load_settings():
             "profile_dir": os.environ.get("CHROME_PROFILE_DIR"),
             "channel": os.environ.get("BROWSER_CHANNEL", "chrome"),
             "headless": os.environ.get("HEADLESS", "").lower() in {"1", "true", "yes"},
+            "keep_open": os.environ.get("KEEP_BROWSER_OPEN", "").lower()
+            in {"1", "true", "yes"}
+            or os.environ.get("KEEP_BROWER_OPEN", "").lower() in {"1", "true", "yes"},
+            "wait_seconds": int(os.environ.get("WAIT_SECONDS", "0") or "0"),
         },
         "login": {
             "url": os.environ.get("LOGIN_URL", "http://localhost:8080/login"),
