@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from pathlib import Path
 
 
@@ -18,7 +19,22 @@ from env_loader import load_dotenv
 
 def normalize_keywords(value, default_value):
     raw = value or default_value
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    items = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        normalized = unicodedata.normalize("NFKC", item)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        items.append(normalized)
+    return items
+
+
+def normalize_header_text(text):
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = normalized.replace("\\", " ")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
 
 
 def build_patterns():
@@ -62,7 +78,7 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
             break
 
         header = lines[i]
-        header_norm = header.replace("\u3000", " ")
+        header_norm = normalize_header_text(header)
         header_match = header_re.search(header_norm)
         i += 1
 
@@ -79,7 +95,7 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
 
         if not header_match:
             if len(header_misses) < 5:
-                header_misses.append(header)
+                header_misses.append(f"raw={header!r} norm={header_norm!r}")
             continue
 
         header_hits += 1
