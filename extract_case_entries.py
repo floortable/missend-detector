@@ -16,19 +16,29 @@ DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}"
 from env_loader import load_dotenv
 
 
+def normalize_keywords(value, default_value):
+    raw = value or default_value
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 def build_patterns():
     separator_pattern = os.environ.get("FIELD_SEPARATOR_PATTERN", DEFAULT_SEPARATOR_PATTERN)
-    question_keyword = os.environ.get("QUESTION_KEYWORD", DEFAULT_QUESTION_KEYWORD)
-    answer_keyword = os.environ.get("ANSWER_KEYWORD", DEFAULT_ANSWER_KEYWORD)
+    question_keywords = normalize_keywords(
+        os.environ.get("QUESTION_KEYWORD"), DEFAULT_QUESTION_KEYWORD
+    )
+    answer_keywords = normalize_keywords(
+        os.environ.get("ANSWER_KEYWORD"), DEFAULT_ANSWER_KEYWORD
+    )
     header_date_pattern = os.environ.get("HEADER_DATE_PATTERN", DEFAULT_HEADER_DATE_PATTERN)
 
     separator_re = re.compile(separator_pattern)
-    type_pattern = rf"{re.escape(question_keyword)}|{re.escape(answer_keyword)}"
+    type_keywords = question_keywords + answer_keywords
+    type_pattern = "|".join(re.escape(keyword) for keyword in type_keywords)
     header_re = re.compile(
-        rf"(?P<date>{header_date_pattern}).*?\b(?P<type>{type_pattern})\b",
+        rf"(?P<date>{header_date_pattern}).*?(?P<type>{type_pattern})",
         re.IGNORECASE,
     )
-    return separator_re, header_re, question_keyword, answer_keyword
+    return separator_re, header_re, question_keywords, answer_keywords
 
 
 def parse_entries(text, separator_re, header_re, question_keyword, answer_keyword):
@@ -73,11 +83,16 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
 
         header_hits += 1
         entry_type_raw = header_match.group("type")
-        entry_type = (
-            "Question"
-            if entry_type_raw.upper() == question_keyword.upper()
-            else "Answer"
-        )
+        entry_type = "Unknown"
+        for keyword in question_keyword:
+            if entry_type_raw.lower() == keyword.lower():
+                entry_type = "Question"
+                break
+        if entry_type == "Unknown":
+            for keyword in answer_keyword:
+                if entry_type_raw.lower() == keyword.lower():
+                    entry_type = "Answer"
+                    break
         data = "\n".join(content_lines).strip()
         entries.append(
             {
