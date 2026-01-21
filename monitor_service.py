@@ -636,6 +636,7 @@ def process_case(case_id, settings):
             login_settings=settings["login"],
         )
 
+        # 取得に失敗してパスが無ければ以降を行わない。
         if not case_text_path.exists():
             logging.error("Case ID %s: fetched file not found: %s", case_id, case_text_path)
             return
@@ -681,6 +682,8 @@ def process_case(case_id, settings):
             logging.info(
                 "case_id=%s result=%s found=%s", case_id, status, found_ids
             )
+            # 調査用に冒頭3行の宣言部分を記録する。
+            logging.debug("case_id=%s declaration head=%r", case_id, (entries[-1].get("data") or "").splitlines()[:3])
             if settings["teams"]["enabled"]:
                 summary = f"Case ID {case_id} caseid declaration {status}"
                 body = [
@@ -781,6 +784,7 @@ def process_case(case_id, settings):
     except Exception:
         logging.exception("Case ID %s: failed to process", case_id)
     finally:
+        # KEEP_WORK_FILES=true の場合は調査用に作業ファイルを残す。
         if settings.get("keep_work_files"):
             logging.debug("作業ファイルを保持します: %s, %s", case_text_path, json_output_path)
             return
