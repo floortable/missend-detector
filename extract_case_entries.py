@@ -48,16 +48,11 @@ def build_patterns():
     header_date_pattern = os.environ.get("HEADER_DATE_PATTERN", DEFAULT_HEADER_DATE_PATTERN)
 
     separator_re = re.compile(separator_pattern)
-    type_keywords = question_keywords + answer_keywords
-    type_pattern = "|".join(re.escape(keyword) for keyword in type_keywords)
-    header_re = re.compile(
-        rf"(?P<date>{header_date_pattern}).*?(?P<type>{type_pattern})",
-        re.IGNORECASE,
-    )
-    return separator_re, header_re, question_keywords, answer_keywords
+    date_re = re.compile(rf"(?P<date>{header_date_pattern})", re.IGNORECASE)
+    return separator_re, date_re, question_keywords, answer_keywords
 
 
-def parse_entries(text, separator_re, header_re, question_keyword, answer_keyword):
+def parse_entries(text, separator_re, date_re, question_keyword, answer_keyword):
     lines = [line.rstrip("\r\n") for line in text.splitlines()]
     entries = []
     i = 0
@@ -79,7 +74,7 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
 
         header = lines[i]
         header_norm = normalize_header_text(header)
-        header_match = header_re.search(header_norm)
+        header_match = date_re.search(header_norm)
         i += 1
 
         while i < len(lines) and not separator_re.match(lines[i]):
@@ -99,17 +94,23 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
             continue
 
         header_hits += 1
-        entry_type_raw = header_match.group("type")
+        entry_type_raw = None
         entry_type = "Unknown"
         for keyword in question_keyword:
-            if entry_type_raw.lower() == keyword.lower():
+            if keyword.lower() in header_norm.lower():
+                entry_type_raw = keyword
                 entry_type = "Question"
                 break
         if entry_type == "Unknown":
             for keyword in answer_keyword:
-                if entry_type_raw.lower() == keyword.lower():
+                if keyword.lower() in header_norm.lower():
+                    entry_type_raw = keyword
                     entry_type = "Answer"
                     break
+        if entry_type == "Unknown":
+            if len(header_misses) < 5:
+                header_misses.append(f"raw={header!r} norm={header_norm!r}")
+            continue
         data = "\n".join(content_lines).strip()
         entries.append(
             {
@@ -173,15 +174,15 @@ def main():
         raise SystemExit("Case IDを特定できません。--case-idを指定してください。")
     text = input_path.read_text(encoding="utf-8")
     logging.debug("入力ファイル: %s 文字数=%s", input_path, len(text))
-    separator_re, header_re, question_keyword, answer_keyword = build_patterns()
+    separator_re, date_re, question_keyword, answer_keyword = build_patterns()
     logging.debug(
         "separator_pattern=%r header_pattern=%r question_keyword=%r answer_keyword=%r",
         separator_re.pattern,
-        header_re.pattern,
+        date_re.pattern,
         question_keyword,
         answer_keyword,
     )
-    entries = parse_entries(text, separator_re, header_re, question_keyword, answer_keyword)
+    entries = parse_entries(text, separator_re, date_re, question_keyword, answer_keyword)
 
     output_text = json.dumps(entries, ensure_ascii=False, indent=4)
     if args.output:
