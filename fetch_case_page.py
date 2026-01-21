@@ -64,6 +64,56 @@ def collect_page_content(page):
     return "\n".join(parts)
 
 
+def collect_visible_text(page):
+    def extract_text(frame):
+        try:
+            return frame.evaluate(
+                """
+                () => {
+                  const parts = [];
+                  const walk = (node) => {
+                    if (!node) return;
+                    if (node.nodeType === Node.TEXT_NODE) {
+                      const text = node.textContent && node.textContent.trim();
+                      if (text) parts.push(text);
+                      return;
+                    }
+                    if (
+                      node.nodeType !== Node.ELEMENT_NODE &&
+                      node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE
+                    ) {
+                      return;
+                    }
+                    if (node.shadowRoot) walk(node.shadowRoot);
+                    for (const child of node.childNodes || []) {
+                      walk(child);
+                    }
+                  };
+                  walk(document.body || document.documentElement);
+                  return parts.join("\\n");
+                }
+                """
+            )
+        except Exception as exc:
+            logging.debug("テキスト抽出に失敗しました: %s (%s)", frame.url, exc)
+            return ""
+
+    parts = []
+    main_text = extract_text(page.main_frame)
+    if main_text:
+        parts.append(f"<!-- main frame url={page.url} -->")
+        parts.append(main_text)
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+        frame_text = extract_text(frame)
+        if frame_text:
+            frame_url = frame.url or "about:blank"
+            parts.append(f"<!-- frame url={frame_url} -->")
+            parts.append(frame_text)
+    return "\n".join(parts)
+
+
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser(
@@ -143,6 +193,12 @@ def main():
         default=int(os.environ.get("WAIT_SECONDS", "0") or "0"),
         help="ページ表示後に待機する秒数 (default: env WAIT_SECONDS or 0)",
     )
+    parser.add_argument(
+        "--save-screenshot",
+        action="store_true",
+        default=os.environ.get("SAVE_SCREENSHOT", "").lower() in {"1", "true", "yes"},
+        help="スクリーンショットを保存します (default: env SAVE_SCREENSHOT)",
+    )
     args = parser.parse_args()
 
     if args.log_enabled:
@@ -217,8 +273,21 @@ def main():
             if args.wait_seconds > 0:
                 logging.info("ページ表示後に%s秒待機します。", args.wait_seconds)
                 page.wait_for_timeout(args.wait_seconds * 1000)
-            page_source = collect_page_content(page)
-            logging.debug("取得したHTML文字数=%s", len(page_source))
+            page_html = collect_page_content(page)
+            page_text = ""
+            if not page_html.strip():
+                logging.info("HTMLが空のためテキストを取得します。")
+                page_text = collect_visible_text(page)
+            page_source = page_html or page_text
+            logging.debug(
+                "取得したHTML文字数=%s テキスト文字数=%s",
+                len(page_html),
+                len(page_text),
+            )
+            if args.save_screenshot:
+                screenshot_path = output_dir / f"{case_id}.png"
+                page.screenshot(path=str(screenshot_path), full_page=True)
+                logging.info("スクリーンショットを保存しました: %s", screenshot_path)
         finally:
             if args.keep_open:
                 logging.info("ブラウザを閉じる前に待機します。Enterで終了します。")
