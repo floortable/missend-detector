@@ -521,6 +521,11 @@ def monitor_directory(settings):
                 case_id = match.group("case_id")
                 process_case(case_id, settings)
                 processed.add(path)
+                try:
+                    path.unlink()
+                    logging.debug("処理済みファイルを削除しました: %s", path)
+                except FileNotFoundError:
+                    pass
         except Exception:
             logging.exception("Monitor loop error")
         time.sleep(settings["poll_interval"])
