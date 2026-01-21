@@ -333,8 +333,19 @@ def build_llm_url(base_url):
     return f"{base}/chat/completions"
 
 
+def load_prompt_template(settings):
+    if settings.get("prompt_file"):
+        path = Path(settings["prompt_file"])
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent / path
+        if path.exists():
+            return path.read_text(encoding="utf-8")
+        logging.warning("LLM_PROMPT_FILE が見つかりません: %s", path)
+    return settings["prompt"] or DEFAULT_LLM_PROMPT
+
+
 def call_llm(case_id, entries_payload, settings):
-    prompt_template = settings["prompt"] or DEFAULT_LLM_PROMPT
+    prompt_template = load_prompt_template(settings)
     # {entries} 置換が使えるようにテンプレート形式を維持。
     if "{entries}" not in prompt_template:
         print("WARNING: LLM_PROMPTに{entries}が含まれていません。", flush=True)
@@ -728,6 +739,7 @@ def load_settings():
             "api_key": os.environ.get("LLM_API_KEY", ""),
             "model": os.environ.get("LLM_MODEL", "llama3.2:1b"),
             "prompt": os.environ.get("LLM_PROMPT", ""),
+            "prompt_file": os.environ.get("LLM_PROMPT_FILE", ""),
             "temperature": float(os.environ.get("LLM_TEMPERATURE", "0.2")),
             "timeout": int(os.environ.get("LLM_TIMEOUT", "60")),
             "cert_file": os.environ.get("LLM_CERT_FILE", ""),
