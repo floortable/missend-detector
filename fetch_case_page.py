@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 from urllib.parse import urljoin
 
 from playwright.sync_api import sync_playwright
@@ -188,6 +189,23 @@ def main():
         help="ログレベル (default: env LOG_LEVEL or INFO)",
     )
     parser.add_argument(
+        "--log-dir",
+        default=os.environ.get("LOG_DIR", ""),
+        help="ログディレクトリ (default: env LOG_DIR or none)",
+    )
+    parser.add_argument(
+        "--log-max-bytes",
+        type=int,
+        default=int(os.environ.get("LOG_MAX_BYTES", "1048576") or "1048576"),
+        help="ログローテーションサイズ (bytes) (default: env LOG_MAX_BYTES or 1048576)",
+    )
+    parser.add_argument(
+        "--log-backup-count",
+        type=int,
+        default=int(os.environ.get("LOG_BACKUP_COUNT", "3") or "3"),
+        help="ログローテーション世代数 (default: env LOG_BACKUP_COUNT or 3)",
+    )
+    parser.add_argument(
         "--keep-open",
         action="store_true",
         default=os.environ.get("KEEP_BROWSER_OPEN", "").lower() in {"1", "true", "yes"},
@@ -208,9 +226,23 @@ def main():
     args = parser.parse_args()
 
     if args.log_enabled:
+        handlers = [logging.StreamHandler()]
+        if args.log_dir:
+            log_dir = Path(args.log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "fetch_case_page.log"
+            handlers.append(
+                RotatingFileHandler(
+                    log_path,
+                    maxBytes=args.log_max_bytes,
+                    backupCount=args.log_backup_count,
+                    encoding="utf-8",
+                )
+            )
         logging.basicConfig(
             level=args.log_level,
             format="%(asctime)s %(levelname)s %(message)s",
+            handlers=handlers,
         )
     else:
         logging.disable(logging.CRITICAL)
