@@ -297,6 +297,7 @@ def build_case_json(case_text, max_chars, log_filter):
     # 抽出→整形→LLMに渡すサイズまで切り詰める。
     separator_re, header_re, question_keyword, answer_keyword = build_patterns()
     entries = parse_entries(case_text, separator_re, header_re, question_keyword, answer_keyword)
+    entries = list(reversed(entries))
     cleaned_entries = []
     for entry in entries:
         original_data = entry["data"]

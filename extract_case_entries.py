@@ -190,6 +190,7 @@ def main():
         answer_keyword,
     )
     entries = parse_entries(text, separator_re, date_re, question_keyword, answer_keyword)
+    entries = list(reversed(entries))
 
     output_text = json.dumps(entries, ensure_ascii=False, indent=4)
     if args.output:
