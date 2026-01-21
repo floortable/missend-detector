@@ -84,6 +84,7 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
 
 def main():
     load_dotenv()
+    case_id_digits = int(os.environ.get("CASE_ID_DIGITS", "8") or "8")
     parser = argparse.ArgumentParser(
         description="Case IDのテキストからQUESTION/ANSWERを抽出してJSON出力します。"
     )
@@ -103,10 +104,13 @@ def main():
     )
     args = parser.parse_args()
 
-    input_path = Path(args.input)
     case_id = args.case_id
+    input_path = Path(args.input)
+    if args.input == parser.get_default("input") and case_id:
+        work_dir = Path(os.environ.get("WORK_DIR", Path(__file__).resolve().parent / "work"))
+        input_path = work_dir / f"{case_id}.txt"
     if not case_id:
-        match = re.fullmatch(r"(\d{8})\.txt", input_path.name)
+        match = re.fullmatch(rf"(\\d{{{case_id_digits}}})\\.txt", input_path.name)
         if match:
             case_id = match.group(1)
     if not case_id:
