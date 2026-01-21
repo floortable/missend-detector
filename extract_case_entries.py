@@ -37,6 +37,10 @@ def normalize_header_text(text):
     return normalized
 
 
+def normalize_regex_pattern(pattern):
+    return pattern.replace("\\\\", "\\")
+
+
 def build_patterns():
     separator_pattern = os.environ.get("FIELD_SEPARATOR_PATTERN", DEFAULT_SEPARATOR_PATTERN)
     question_keywords = normalize_keywords(
@@ -47,8 +51,11 @@ def build_patterns():
     )
     header_date_pattern = os.environ.get("HEADER_DATE_PATTERN", DEFAULT_HEADER_DATE_PATTERN)
 
-    separator_re = re.compile(separator_pattern)
-    date_re = re.compile(rf"(?P<date>{header_date_pattern})", re.IGNORECASE)
+    separator_re = re.compile(normalize_regex_pattern(separator_pattern))
+    date_re = re.compile(
+        rf"(?P<date>{normalize_regex_pattern(header_date_pattern)})",
+        re.IGNORECASE,
+    )
     return separator_re, date_re, question_keywords, answer_keywords
 
 
