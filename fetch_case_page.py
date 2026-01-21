@@ -192,8 +192,8 @@ def main():
             if args.wait_seconds > 0:
                 logging.info("ページ表示後に%s秒待機します。", args.wait_seconds)
                 page.wait_for_timeout(args.wait_seconds * 1000)
-            page_source = page.inner_text("body")
-            logging.debug("取得した本文文字数=%s", len(page_source))
+            page_source = page.content()
+            logging.debug("取得したHTML文字数=%s", len(page_source))
         finally:
             if args.keep_open:
                 logging.info("ブラウザを閉じる前に待機します。Enterで終了します。")
