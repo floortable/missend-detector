@@ -10,7 +10,7 @@ from pathlib import Path
 DEFAULT_SEPARATOR_PATTERN = r"^ー+$"
 DEFAULT_QUESTION_KEYWORD = "QUESTION"
 DEFAULT_ANSWER_KEYWORD = "ANSWER"
-DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}"
+DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/\d{2}/\d{2}(?:\s+\d{2}:\d{2})?"
 
 
 from env_loader import load_dotenv
@@ -62,7 +62,8 @@ def parse_entries(text, separator_re, header_re, question_keyword, answer_keywor
             break
 
         header = lines[i]
-        header_match = header_re.search(header)
+        header_norm = header.replace("\u3000", " ")
+        header_match = header_re.search(header_norm)
         i += 1
 
         while i < len(lines) and not separator_re.match(lines[i]):
