@@ -418,6 +418,7 @@ def wait_for_stable_size(path, retries=5, interval=1.0):
             return True
         last_size = size
         time.sleep(interval)
+    logging.debug("ファイルサイズが安定しませんでした: %s", path)
     return True
 
 
@@ -487,28 +488,39 @@ def monitor_directory(settings):
     # 追加依存を避けるためポーリングで監視する。
     monitor_dir = settings["monitor_dir"]
     monitor_dir.mkdir(parents=True, exist_ok=True)
+    case_id_re = re.compile(rf"^(?P<case_id>\d{{{settings['case_id_digits']}}})\.txt$")
+    logging.debug(
+        "monitor_dir=%s process_existing=%s poll_interval=%s case_id_digits=%s",
+        monitor_dir,
+        settings["process_existing"],
+        settings["poll_interval"],
+        settings["case_id_digits"],
+    )
 
     processed = set()
     if not settings["process_existing"]:
-        for path in monitor_dir.iterdir():
-            if path.is_file() and CASE_ID_RE.match(path.name):
-                processed.add(path.name)
+        for entry in monitor_dir.iterdir():
+            if entry.is_file() and case_id_re.match(entry.name):
+                processed.add(entry)
+        logging.debug("初期既存ファイルを除外しました: %s", len(processed))
 
     while True:
         try:
+            logging.debug("スキャン中: %s", monitor_dir)
             for path in sorted(monitor_dir.iterdir()):
                 if not path.is_file():
                     continue
-                match = CASE_ID_RE.match(path.name)
+                match = case_id_re.match(path.name)
                 if not match:
                     continue
-                if path.name in processed:
+                if path in processed:
                     continue
+                logging.debug("処理対象を検出: %s", path)
                 if not wait_for_stable_size(path):
                     continue
                 case_id = match.group("case_id")
                 process_case(case_id, settings)
-                processed.add(path.name)
+                processed.add(path)
         except Exception:
             logging.exception("Monitor loop error")
         time.sleep(settings["poll_interval"])
@@ -520,6 +532,7 @@ def load_settings():
     return {
         "monitor_dir": Path(os.environ.get("MONITOR_DIR", base_dir / "monitor")),
         "work_dir": Path(os.environ.get("WORK_DIR", base_dir / "work")),
+        "case_id_digits": int(os.environ.get("CASE_ID_DIGITS", "8") or "8"),
         "poll_interval": float(os.environ.get("POLL_INTERVAL", "2")),
         "process_existing": os.environ.get("PROCESS_EXISTING", "").lower()
         in {"1", "true", "yes"},
