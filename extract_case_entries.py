@@ -17,17 +17,17 @@ DEFAULT_HEADER_DATE_PATTERN = r"\d{4}/(?:\d{2}/\d{2}|\d{4})\s+\d{1,2}:\d{2}"
 from env_loader import load_dotenv
 
 
-    def normalize_keywords(value, default_value):
-        raw = value or default_value
-        items = []
-        for item in raw.split(","):
-            item = item.strip()
-            if not item:
-                continue
-            normalized = unicodedata.normalize("NFKC", item)
-            normalized = re.sub(r"\s+", " ", normalized).strip()
-            items.append(normalized)
-        return items
+def normalize_keywords(value, default_value):
+    raw = value or default_value
+    items = []
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        normalized = unicodedata.normalize("NFKC", item)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        items.append(normalized)
+    return items
 
 
 def normalize_header_text(text):
