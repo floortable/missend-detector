@@ -379,6 +379,19 @@ def call_llm(case_id, entries_payload, settings):
     return data["choices"][0]["message"]["content"]
 
 
+def evaluate_llm(case_id, entries_payload, settings, label):
+    llm_text = call_llm(case_id, entries_payload, settings)
+    logging.debug("Case ID %s: %s llm response=%s", case_id, label, llm_text)
+    llm_json = parse_llm_json(llm_text)
+    judgement, reason = parse_llm_judgement(llm_text)
+    decision_value = None
+    if judgement:
+        decision_value = judgement
+    elif llm_json and isinstance(llm_json, dict):
+        decision_value = str(llm_json.get("decision", "")).lower()
+    return llm_text, llm_json, judgement, reason, decision_value
+
+
 def parse_llm_json(text):
     # 前後に余計な文があってもJSONだけ拾えるようにする。
     try:
@@ -403,7 +416,7 @@ def parse_llm_judgement(text):
     return result, reason
 
 
-def append_llm_result(output_path, case_id, result, reason):
+def append_llm_result(output_path, case_id, result, reason, model):
     if not output_path:
         return
     try:
@@ -420,13 +433,14 @@ def append_llm_result(output_path, case_id, result, reason):
     else:
         workbook = Workbook()
         sheet = workbook.active
-        sheet.append(["timestamp", "case_id", "result", "reason"])
+        sheet.append(["timestamp", "case_id", "result", "reason", "model"])
     sheet.append(
         [
             datetime.now().isoformat(timespec="seconds"),
             case_id,
             result or "",
             reason or "",
+            model or "",
         ]
     )
     workbook.save(output_path)
@@ -647,19 +661,45 @@ def process_case(case_id, settings):
 
         llm_input = json.dumps(entries, ensure_ascii=False, indent=2)
         logging.debug("Case ID %s: llm input=%s", case_id, llm_input)
-        llm_text = call_llm(case_id, llm_input, settings["llm"])
-        logging.debug("Case ID %s: llm response=%s", case_id, llm_text)
-        llm_json = parse_llm_json(llm_text)
-        judgement, _reason = parse_llm_judgement(llm_text)
 
+        llm_text = None
+        llm_json = None
+        judgement = None
+        _reason = None
         decision_value = None
-        if judgement:
-            decision_value = judgement
-        elif llm_json and isinstance(llm_json, dict):
-            decision_value = str(llm_json.get("decision", "")).lower()
+        model_used = settings["llm"]["model"]
+        try:
+            llm_text, llm_json, judgement, _reason, decision_value = evaluate_llm(
+                case_id,
+                llm_input,
+                settings["llm"],
+                "primary",
+            )
+        except Exception:
+            logging.exception("Case ID %s: primary LLM failed", case_id)
+            if not settings["llm_secondary"]["enabled"]:
+                raise
+
+        decision_lower = str(decision_value or "").lower()
+        needs_secondary = False
+        if settings["llm_secondary"]["enabled"]:
+            if decision_value in {"却下", "不明"}:
+                needs_secondary = True
+            elif decision_lower in {"reject", "rejected", "ng", "fail", "unknown"}:
+                needs_secondary = True
+            elif decision_value is None:
+                needs_secondary = True
+        if needs_secondary:
+            llm_text, llm_json, judgement, _reason, decision_value = evaluate_llm(
+                case_id,
+                llm_input,
+                settings["llm_secondary"],
+                "secondary",
+            )
+            model_used = settings["llm_secondary"]["model"]
 
         webhooks = [settings["teams"]["default"]]
-        if decision_value in {"却下", "reject", "rejected", "ng", "fail"}:
+        if str(decision_value or "").lower() in {"却下", "reject", "rejected", "ng", "fail"}:
             webhooks.append(settings["teams"]["reject"])
         if settings["teams"]["enabled"]:
             notify_teams(case_id, llm_text, llm_json, webhooks)
@@ -668,6 +708,7 @@ def process_case(case_id, settings):
             case_id,
             decision_value or "unknown",
             _reason,
+            model_used,
         )
         logging.info("case_id=%s result=%s", case_id, decision_value or "unknown")
     except Exception:
@@ -786,6 +827,17 @@ def load_settings():
             "result_xlsx": os.environ.get("LLM_RESULT_XLSX", ""),
             "allow_partial": os.environ.get("LLM_ALLOW_PARTIAL", "").lower()
             in {"1", "true", "yes"},
+        },
+        "llm_secondary": {
+            "enabled": bool(os.environ.get("LLM2_BASE_URL")),
+            "base_url": os.environ.get("LLM2_BASE_URL", ""),
+            "api_key": os.environ.get("LLM2_API_KEY", ""),
+            "model": os.environ.get("LLM2_MODEL", ""),
+            "prompt": os.environ.get("LLM2_PROMPT", ""),
+            "prompt_file": os.environ.get("LLM2_PROMPT_FILE", ""),
+            "temperature": float(os.environ.get("LLM2_TEMPERATURE", "0.2")),
+            "timeout": int(os.environ.get("LLM2_TIMEOUT", "60")),
+            "ca_bundle": os.environ.get("LLM2_CERT_FILE", ""),
         },
         "teams": {
             "enabled": os.environ.get("TEAMS_ENABLED", "true").lower()
