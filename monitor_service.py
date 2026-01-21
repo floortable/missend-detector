@@ -624,6 +624,8 @@ def wait_for_stable_size(path, retries=5, interval=1.0):
 def process_case(case_id, settings):
     work_dir = settings["work_dir"]
     work_dir.mkdir(parents=True, exist_ok=True)
+    case_text_path = work_dir / f"{case_id}.txt"
+    json_output_path = work_dir / f"{case_id}.json"
 
     try:
         case_text_path = fetch_case_text(
@@ -774,6 +776,15 @@ def process_case(case_id, settings):
         logging.info("case_id=%s result=%s", case_id, decision_value or "unknown")
     except Exception:
         logging.exception("Case ID %s: failed to process", case_id)
+    finally:
+        for path in (case_text_path, json_output_path):
+            try:
+                path.unlink()
+                logging.debug("作業ファイルを削除しました: %s", path)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                logging.exception("作業ファイル削除に失敗しました: %s", path)
 
 
 def monitor_directory(settings):
