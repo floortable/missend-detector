@@ -299,7 +299,14 @@ def build_case_json(case_text, max_chars, log_filter):
     entries = parse_entries(case_text, separator_re, header_re, question_keyword, answer_keyword)
     cleaned_entries = []
     for entry in entries:
-        cleaned = clean_entry_data(entry["data"])
+        original_data = entry["data"]
+        cleaned = clean_entry_data(original_data)
+        if not cleaned and original_data:
+            logging.debug(
+                "clean_entry_dataで全削除されたため元の内容を保持します: type=%s",
+                entry["type"],
+            )
+            cleaned = original_data
         original_cleaned = cleaned
         if log_filter["enabled"]:
             cleaned = remove_logs(cleaned, log_filter)
@@ -310,6 +317,7 @@ def build_case_json(case_text, max_chars, log_filter):
                 )
                 cleaned = original_cleaned
         if not cleaned:
+            logging.debug("空エントリのため除外します: type=%s", entry["type"])
             continue
         logging.debug("entry cleaned: type=%s chars=%s", entry["type"], len(cleaned))
         cleaned_entries.append({**entry, "data": cleaned})
