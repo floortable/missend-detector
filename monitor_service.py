@@ -603,16 +603,7 @@ def process_case(case_id, settings):
             encoding="utf-8",
         )
 
-        # プロンプトのスキーマ（type/created_on/text）に合わせる。
-        llm_entries = [
-            {
-                "type": entry["type"].lower(),
-                "created_on": entry["date"],
-                "text": entry["data"],
-            }
-            for entry in entries
-        ]
-        llm_input = json.dumps(llm_entries, ensure_ascii=False, indent=2)
+        llm_input = json.dumps(entries, ensure_ascii=False, indent=2)
         logging.debug("Case ID %s: llm input=%s", case_id, llm_input)
         llm_text = call_llm(case_id, llm_input, settings["llm"])
         llm_json = parse_llm_json(llm_text)
