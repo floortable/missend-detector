@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+import signal
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -52,6 +53,14 @@ DEFAULT_LLM_PROMPT = """あなたはサポートチケットの内容整合性�
 ### 履歴
 {entries}
 """
+
+STOP_REQUESTED = False
+
+
+def handle_stop_signal(signum, _frame):
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
+    logging.info("停止シグナル(%s)を受信しました。現在の処理が終わり次第停止します。", signum)
 
 
 def build_url(base_url, case_id):
@@ -508,6 +517,9 @@ def monitor_directory(settings):
         try:
             logging.debug("スキャン中: %s", monitor_dir)
             for path in sorted(monitor_dir.iterdir()):
+                if STOP_REQUESTED:
+                    logging.info("停止要求により監視を終了します。")
+                    return
                 if not path.is_file():
                     continue
                 match = case_id_re.match(path.name)
@@ -526,6 +538,9 @@ def monitor_directory(settings):
                     logging.debug("処理済みファイルを削除しました: %s", path)
                 except FileNotFoundError:
                     pass
+                if STOP_REQUESTED:
+                    logging.info("停止要求により監視を終了します。")
+                    return
         except Exception:
             logging.exception("Monitor loop error")
         time.sleep(settings["poll_interval"])
@@ -604,6 +619,8 @@ def main():
         )
     else:
         logging.disable(logging.CRITICAL)
+    signal.signal(signal.SIGINT, handle_stop_signal)
+    signal.signal(signal.SIGTERM, handle_stop_signal)
     monitor_directory(settings)
 
 
