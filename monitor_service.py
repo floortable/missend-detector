@@ -6,6 +6,7 @@ import re
 import time
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -402,6 +403,35 @@ def parse_llm_judgement(text):
     return result, reason
 
 
+def append_llm_result(output_path, case_id, result, reason):
+    if not output_path:
+        return
+    try:
+        from openpyxl import Workbook, load_workbook
+    except ImportError:
+        logging.error("openpyxlが必要です。`pip install openpyxl` を実行してください。")
+        return
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        workbook = load_workbook(output_path)
+        sheet = workbook.active
+    else:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["timestamp", "case_id", "result", "reason"])
+    sheet.append(
+        [
+            datetime.now().isoformat(timespec="seconds"),
+            case_id,
+            result or "",
+            reason or "",
+        ]
+    )
+    workbook.save(output_path)
+
+
 def notify_teams(case_id, llm_text, llm_json, webhook_urls):
     if not webhook_urls:
         return
@@ -618,6 +648,7 @@ def process_case(case_id, settings):
         llm_input = json.dumps(entries, ensure_ascii=False, indent=2)
         logging.debug("Case ID %s: llm input=%s", case_id, llm_input)
         llm_text = call_llm(case_id, llm_input, settings["llm"])
+        logging.debug("Case ID %s: llm response=%s", case_id, llm_text)
         llm_json = parse_llm_json(llm_text)
         judgement, _reason = parse_llm_judgement(llm_text)
 
@@ -632,6 +663,12 @@ def process_case(case_id, settings):
             webhooks.append(settings["teams"]["reject"])
         if settings["teams"]["enabled"]:
             notify_teams(case_id, llm_text, llm_json, webhooks)
+        append_llm_result(
+            settings["llm"]["result_xlsx"],
+            case_id,
+            decision_value or "unknown",
+            _reason,
+        )
         logging.info("case_id=%s result=%s", case_id, decision_value or "unknown")
     except Exception:
         logging.exception("Case ID %s: failed to process", case_id)
@@ -743,6 +780,7 @@ def load_settings():
             "temperature": float(os.environ.get("LLM_TEMPERATURE", "0.2")),
             "timeout": int(os.environ.get("LLM_TIMEOUT", "60")),
             "ca_bundle": os.environ.get("LLM_CERT_FILE", ""),
+            "result_xlsx": os.environ.get("LLM_RESULT_XLSX", ""),
             "allow_partial": os.environ.get("LLM_ALLOW_PARTIAL", "").lower()
             in {"1", "true", "yes"},
         },
