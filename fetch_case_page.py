@@ -110,6 +110,18 @@ def main():
         default=os.environ.get("LOG_LEVEL", "INFO").upper(),
         help="ログレベル (default: env LOG_LEVEL or INFO)",
     )
+    parser.add_argument(
+        "--keep-open",
+        action="store_true",
+        default=os.environ.get("KEEP_BROWSER_OPEN", "").lower() in {"1", "true", "yes"},
+        help="ブラウザを閉じる前に待機します (default: env KEEP_BROWSER_OPEN)",
+    )
+    parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=int(os.environ.get("WAIT_SECONDS", "0") or "0"),
+        help="ページ表示後に待機する秒数 (default: env WAIT_SECONDS or 0)",
+    )
     args = parser.parse_args()
 
     if args.log_enabled:
@@ -177,9 +189,18 @@ def main():
             if normalize_url(page.url).startswith(normalize_url(args.login_url)):
                 logging.info("ログインページに留まっているため再アクセスします: %s", url)
                 page.goto(url, wait_until="load", timeout=30000)
+            if args.wait_seconds > 0:
+                logging.info("ページ表示後に%s秒待機します。", args.wait_seconds)
+                page.wait_for_timeout(args.wait_seconds * 1000)
             page_source = page.inner_text("body")
             logging.debug("取得した本文文字数=%s", len(page_source))
         finally:
+            if args.keep_open:
+                logging.info("ブラウザを閉じる前に待機します。Enterで終了します。")
+                try:
+                    input()
+                except EOFError:
+                    pass
             context.close()
 
     output_path = output_dir / f"{case_id}.txt"
