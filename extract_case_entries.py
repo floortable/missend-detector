@@ -89,12 +89,6 @@ def parse_entries(text, separator_re, date_re, question_keyword, answer_keyword)
             content_lines.append(lines[i])
             i += 1
 
-        if not header_match:
-            if len(header_misses) < 5:
-                header_misses.append(f"raw={header!r} norm={header_norm!r}")
-            continue
-
-        header_hits += 1
         entry_type_raw = None
         entry_type = "Unknown"
         header_norm_lower = header_norm.lower()
@@ -116,10 +110,11 @@ def parse_entries(text, separator_re, date_re, question_keyword, answer_keyword)
             if len(header_misses) < 5:
                 header_misses.append(f"raw={header!r} norm={header_norm!r}")
             continue
+        header_hits += 1
         data = "\n".join(content_lines).strip()
         entries.append(
             {
-                "date": header_match.group("date"),
+                "date": header_match.group("date") if header_match else "",
                 "type": entry_type,
                 "data": data,
             }
