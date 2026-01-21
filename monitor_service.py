@@ -214,11 +214,15 @@ def fetch_case_text(case_id, base_url, work_dir, browser_settings, login_setting
                 logging.info("ページ表示後に%s秒待機します。", browser_settings["wait_seconds"])
                 page.wait_for_timeout(browser_settings["wait_seconds"] * 1000)
             page_html = collect_page_content(page)
-            page_text = ""
-            if not page_html.strip():
-                logging.info("HTMLが空のためテキストを取得します。")
-                page_text = collect_visible_text(page)
-            body_text = page_html or page_text
+            page_text = collect_visible_text(page)
+            if not page_text.strip() and page_html.strip():
+                logging.info("テキストが空のためHTMLを保存します。")
+            body_text = page_text.strip() or page_html
+            logging.debug(
+                "取得内容: html_chars=%s text_chars=%s",
+                len(page_html),
+                len(page_text),
+            )
         finally:
             if browser_settings["keep_open"]:
                 logging.info("ブラウザを閉じる前に待機します。Enterで終了します。")
@@ -296,10 +300,18 @@ def build_case_json(case_text, max_chars, log_filter):
     cleaned_entries = []
     for entry in entries:
         cleaned = clean_entry_data(entry["data"])
+        original_cleaned = cleaned
         if log_filter["enabled"]:
             cleaned = remove_logs(cleaned, log_filter)
+            if not cleaned and original_cleaned:
+                logging.debug(
+                    "log_filterで全削除されたため元の内容を保持します: type=%s",
+                    entry["type"],
+                )
+                cleaned = original_cleaned
         if not cleaned:
             continue
+        logging.debug("entry cleaned: type=%s chars=%s", entry["type"], len(cleaned))
         cleaned_entries.append({**entry, "data": cleaned})
     return trim_entries(cleaned_entries, max_chars)
 
