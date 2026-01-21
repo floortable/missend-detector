@@ -16,6 +16,10 @@ from env_loader import load_dotenv
 
 CASE_ID_RE = re.compile(r"^(?P<case_id>\d{8})\.txt$")
 META_LINE_RE = re.compile(r"^(【.*】|\[.*\])$")
+LOG_LINE_RE = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}|INFO|ERROR|DEBUG|TRACE|WARN|WARNING)\b"
+)
+JSON_LINE_RE = re.compile(r"^\s*[{[].*[}\]]\s*$")
 DEFAULT_LLM_PROMPT = """あなたはサポートチケットの内容整合性を確認するAIです。
 
 入力として、ある案件（チケット）に関する履歴が時系列順に与えられます。
@@ -135,6 +139,30 @@ def clean_entry_data(text):
     return "\n".join(cleaned).strip()
 
 
+def remove_logs(text, log_filter):
+    if not text:
+        return ""
+    max_line_len = log_filter["max_line_len"]
+    removed = 0
+    filtered = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if LOG_LINE_RE.match(stripped):
+            removed += 1
+            continue
+        if JSON_LINE_RE.match(stripped):
+            removed += 1
+            continue
+        if len(stripped) > max_line_len:
+            removed += 1
+            continue
+        filtered.append(line)
+    logging.debug("log_filter: removed=%s kept=%s", removed, len(filtered))
+    return "\n".join(filtered).strip()
+
+
 def trim_entries(entries, max_chars):
     # 既に新しい順なので、文字数上限まで順に詰める。
     trimmed = []
@@ -155,13 +183,15 @@ def trim_entries(entries, max_chars):
     return trimmed
 
 
-def build_case_json(case_text, max_chars):
+def build_case_json(case_text, max_chars, log_filter):
     # 抽出→整形→LLMに渡すサイズまで切り詰める。
     separator_re, header_re, question_keyword, answer_keyword = build_patterns()
     entries = parse_entries(case_text, separator_re, header_re, question_keyword, answer_keyword)
     cleaned_entries = []
     for entry in entries:
         cleaned = clean_entry_data(entry["data"])
+        if log_filter["enabled"]:
+            cleaned = remove_logs(cleaned, log_filter)
         if not cleaned:
             continue
         cleaned_entries.append({**entry, "data": cleaned})
@@ -406,7 +436,7 @@ def process_case(case_id, settings):
         logging.debug("Case ID %s: fetched text length=%s", case_id, len(case_text))
         logging.debug("Case ID %s: fetched text preview=%r", case_id, case_text[:800])
 
-        entries = build_case_json(case_text, settings["max_chars"])
+        entries = build_case_json(case_text, settings["max_chars"], settings["log_filter"])
         logging.debug("Case ID %s: extracted entries=%s", case_id, len(entries))
         if not entries or entries[-1]["type"].lower() != "answer":
             logging.info(
@@ -492,6 +522,11 @@ def load_settings():
         in {"1", "true", "yes"},
         "base_url": os.environ.get("BASE_URL", "http://localhost:8080/"),
         "max_chars": int(os.environ.get("MAX_CHARS", "6000")),
+        "log_filter": {
+            "enabled": os.environ.get("LOG_FILTER_ENABLED", "true").lower()
+            in {"1", "true", "yes"},
+            "max_line_len": int(os.environ.get("LOG_FILTER_MAX_LINE_LEN", "200")),
+        },
         "browser": {
             "user_data_dir": os.environ.get("CHROME_USER_DATA_DIR"),
             "profile_dir": os.environ.get("CHROME_PROFILE_DIR"),
