@@ -473,12 +473,34 @@ def process_case(case_id, settings):
 
         entries = build_case_json(case_text, settings["max_chars"], settings["log_filter"])
         logging.debug("Case ID %s: extracted entries=%s", case_id, len(entries))
-        if not entries or entries[-1]["type"].lower() != "answer":
-            logging.info(
-                "case_id=%s result=skipped reason=last_entry_not_answer",
-                case_id,
-            )
+        if not entries:
+            logging.info("case_id=%s result=skipped reason=no_entries", case_id)
             return
+        if entries[-1]["type"].lower() != "answer":
+            if settings["llm"]["allow_partial"]:
+                last_answer_index = None
+                for idx in range(len(entries) - 1, -1, -1):
+                    if entries[idx]["type"].lower() == "answer":
+                        last_answer_index = idx
+                        break
+                if last_answer_index is None:
+                    logging.info(
+                        "case_id=%s result=skipped reason=no_answer_entry",
+                        case_id,
+                    )
+                    return
+                entries = entries[: last_answer_index + 1]
+                logging.info(
+                    "case_id=%s result=partial reason=last_entry_not_answer entries=%s",
+                    case_id,
+                    len(entries),
+                )
+            else:
+                logging.info(
+                    "case_id=%s result=skipped reason=last_entry_not_answer",
+                    case_id,
+                )
+                return
         output_path = work_dir / f"{case_id}.json"
         output_path.write_text(
             json.dumps(entries, ensure_ascii=False, indent=4),
@@ -621,6 +643,8 @@ def load_settings():
             "temperature": float(os.environ.get("LLM_TEMPERATURE", "0.2")),
             "timeout": int(os.environ.get("LLM_TIMEOUT", "60")),
             "cert_file": os.environ.get("LLM_CERT_FILE", ""),
+            "allow_partial": os.environ.get("LLM_ALLOW_PARTIAL", "").lower()
+            in {"1", "true", "yes"},
         },
         "teams": {
             "enabled": os.environ.get("TEAMS_ENABLED", "true").lower()
