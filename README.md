@@ -94,6 +94,42 @@ python3 extract_case_entries.py ./work/00000000.txt
 python3 monitor_service.py
 ```
 
+### 常駐サービスとしての起動手順
+
+1. `.env` を整備する（`MONITOR_DIR`/`WORK_DIR`/`CASE_ID_DIGITS`/`LLM_*`/`TEAMS_*` など）。ログ出力をファイルに残したい場合は `LOG_ENABLED=true` のまま `LOG_DIR` を指定します（デフォルトは `./logs/monitor.log` にローテーション出力）。
+2. 依存をインストールしていない場合は実行環境で `python -m pip install -r requirements.txt` 相当を実施し、Playwrightは `python3 -m playwright install` を済ませておきます。
+3. PowerShell でバックグラウンド起動する例（ターミナルを閉じても継続）:
+   ```
+   Start-Process powershell -ArgumentList "-NoProfile -Command cd `"$PWD`"; python .\\monitor_service.py" -WindowStyle Minimized
+   ```
+   - 前景で見たい場合は通常どおり `python monitor_service.py` を実行。
+   - Linux/macOSの場合のバックグラウンド起動例（簡易）:
+     ```
+     nohup python3 monitor_service.py >/tmp/monitor_service.out 2>&1 &
+     ```
+     systemdで常駐させる場合の例（`/etc/systemd/system/missend-detector.service`）:
+     ```
+     [Unit]
+     Description=missend-detector monitor service
+     After=network.target
+
+     [Service]
+     WorkingDirectory=/path/to/missend-detector
+     ExecStart=/usr/bin/python3 monitor_service.py
+     Restart=on-failure
+     EnvironmentFile=/path/to/missend-detector/.env
+
+     [Install]
+     WantedBy=multi-user.target
+     ```
+     反映/起動:
+     ```
+     sudo systemctl daemon-reload
+     sudo systemctl enable --now missend-detector.service
+     ```
+4. 停止する場合は、起動した PowerShell ウィンドウを閉じるか、タスクマネージャーで対象の `python` プロセスを終了します。
+5. 動作確認: `monitor` ディレクトリに `<caseid>.txt` を置くと処理され、結果が `WORK_DIR` 配下に保存されます。ログはコンソールと `LOG_DIR` に出力されます。
+
 ### .env の利用
 
 リポジトリ直下の`.env`を読み込むため、環境変数は`.env`で設定可能です。`.env.example`を参考にしてください。
