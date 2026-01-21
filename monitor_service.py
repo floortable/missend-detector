@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import re
 import time
@@ -416,6 +417,20 @@ def parse_llm_judgement(text):
     return result, reason
 
 
+def validate_caseid_declaration(entries, case_id, digits):
+    # 回答冒頭(最大3行)からcaseid宣言を抽出・確認する。
+    answer_text = (entries[-1].get("data") or "").strip()
+    lines = answer_text.splitlines()
+    head = "\n".join(lines[:3])
+    pattern = rf"\d{{{digits}}}"
+    found = re.findall(pattern, head)
+    if not found:
+        return "caseid_missing", found
+    if case_id not in found:
+        return "caseid_mismatch", found
+    return "ok", found
+
+
 def append_llm_result(output_path, case_id, result, reason, model):
     if not output_path:
         return
@@ -653,6 +668,52 @@ def process_case(case_id, settings):
                     case_id,
                 )
                 return
+        status, found_ids = validate_caseid_declaration(
+            entries, case_id, settings["case_id_digits"]
+        )
+        if status != "ok":
+            logging.info(
+                "case_id=%s result=%s found=%s", case_id, status, found_ids
+            )
+            if settings["teams"]["enabled"]:
+                summary = f"Case ID {case_id} caseid declaration {status}"
+                body = [
+                    {
+                        "type": "Container",
+                        "style": "attention",
+                        "items": [
+                            {
+                                "type": "TextBlock",
+                                "text": "受付番号宣言エラー",
+                                "size": "Large",
+                                "weight": "Bolder",
+                                "wrap": True,
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": f"Case #{case_id}",
+                                "wrap": True,
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": f"検出番号: {', '.join(found_ids) or 'なし'}",
+                                "wrap": True,
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": f"状態: {status}",
+                                "wrap": True,
+                            },
+                        ],
+                        "bleed": True,
+                    }
+                ]
+                send_adaptive_card(
+                    [settings["teams"]["default"], settings["teams"]["reject"]],
+                    body,
+                    summary=summary,
+                )
+            return
         output_path = work_dir / f"{case_id}.json"
         output_path.write_text(
             json.dumps(entries, ensure_ascii=False, indent=4),
@@ -760,6 +821,9 @@ def monitor_directory(settings):
                     logging.debug("処理済みファイルを削除しました: %s", path)
                 except FileNotFoundError:
                     pass
+                finally:
+                    # 同じ名前のファイルを後で再投入できるようにフラグを外す。
+                    processed.discard(path)
                 if STOP_REQUESTED:
                     logging.info("停止要求により監視を終了します。")
                     return
@@ -849,6 +913,9 @@ def load_settings():
             "enabled": os.environ.get("LOG_ENABLED", "true").lower()
             in {"1", "true", "yes"},
             "level": os.environ.get("LOG_LEVEL", "INFO").upper(),
+            "dir": Path(os.environ.get("LOG_DIR", base_dir / "logs")),
+            "max_bytes": int(os.environ.get("LOG_MAX_BYTES", "1048576")),
+            "backup_count": int(os.environ.get("LOG_BACKUP_COUNT", "3")),
         },
     }
 
@@ -857,9 +924,22 @@ def main():
     load_dotenv()
     settings = load_settings()
     if settings["logging"]["enabled"]:
+        log_dir = settings["logging"]["dir"]
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "monitor.log"
+        handlers = [
+            RotatingFileHandler(
+                log_file,
+                maxBytes=settings["logging"]["max_bytes"],
+                backupCount=settings["logging"]["backup_count"],
+                encoding="utf-8",
+            ),
+            logging.StreamHandler(sys.stdout),
+        ]
         logging.basicConfig(
             level=settings["logging"]["level"],
             format="%(asctime)s %(levelname)s %(message)s",
+            handlers=handlers,
         )
     else:
         logging.disable(logging.CRITICAL)
