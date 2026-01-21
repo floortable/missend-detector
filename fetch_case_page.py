@@ -126,6 +126,11 @@ def main():
         help="Case ID。未指定の場合は入力を促します。",
     )
     parser.add_argument(
+        "--case-id",
+        dest="case_id_option",
+        help="Case ID (位置引数の代わりに指定できます)。",
+    )
+    parser.add_argument(
         "--case-id-digits",
         type=int,
         default=int(os.environ.get("CASE_ID_DIGITS", "8") or "8"),
@@ -248,7 +253,7 @@ def main():
         logging.disable(logging.CRITICAL)
 
     prompt = f"{args.case_id_digits}桁のCase IDを入力してください: "
-    case_id = args.case_id or input(prompt).strip()
+    case_id = args.case_id_option or args.case_id or input(prompt).strip()
     if not validate_case_id(case_id, args.case_id_digits):
         raise SystemExit(f"Case IDは{args.case_id_digits}桁の数字で指定してください。")
 
