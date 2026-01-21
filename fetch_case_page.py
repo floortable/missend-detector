@@ -43,6 +43,27 @@ def login_if_needed(page, login_url, username, password, selectors):
         page.wait_for_load_state("load")
 
 
+def collect_page_content(page):
+    parts = []
+    main_url = page.url
+    parts.append(f"<!-- main frame url={main_url} -->")
+    parts.append(page.content())
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+        frame_url = frame.url or "about:blank"
+        if frame_url == "about:blank":
+            continue
+        try:
+            frame_content = frame.content()
+        except Exception as exc:
+            logging.debug("フレーム内容の取得に失敗しました: %s (%s)", frame_url, exc)
+            continue
+        parts.append(f"<!-- frame url={frame_url} -->")
+        parts.append(frame_content)
+    return "\n".join(parts)
+
+
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser(
@@ -189,10 +210,14 @@ def main():
             if normalize_url(page.url).startswith(normalize_url(args.login_url)):
                 logging.info("ログインページに留まっているため再アクセスします: %s", url)
                 page.goto(url, wait_until="load", timeout=30000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=30000)
+            except Exception:
+                logging.debug("networkidle待機がタイムアウトしました。")
             if args.wait_seconds > 0:
                 logging.info("ページ表示後に%s秒待機します。", args.wait_seconds)
                 page.wait_for_timeout(args.wait_seconds * 1000)
-            page_source = page.content()
+            page_source = collect_page_content(page)
             logging.debug("取得したHTML文字数=%s", len(page_source))
         finally:
             if args.keep_open:
