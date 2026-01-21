@@ -16,6 +16,8 @@ def validate_case_id(case_id):
 
 
 def build_url(base_url, case_id):
+    if "?" in base_url or base_url.endswith("="):
+        return f"{base_url}{case_id}"
     base = base_url if base_url.endswith("/") else base_url + "/"
     return urljoin(base, case_id)
 
