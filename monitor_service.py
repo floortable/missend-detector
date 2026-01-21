@@ -636,6 +636,10 @@ def process_case(case_id, settings):
             login_settings=settings["login"],
         )
 
+        if not case_text_path.exists():
+            logging.error("Case ID %s: fetched file not found: %s", case_id, case_text_path)
+            return
+
         case_text = case_text_path.read_text(encoding="utf-8")
         logging.debug("Case ID %s: fetched text length=%s", case_id, len(case_text))
         logging.debug("Case ID %s: fetched text preview=%r", case_id, case_text[:800])
@@ -777,6 +781,9 @@ def process_case(case_id, settings):
     except Exception:
         logging.exception("Case ID %s: failed to process", case_id)
     finally:
+        if settings.get("keep_work_files"):
+            logging.debug("作業ファイルを保持します: %s, %s", case_text_path, json_output_path)
+            return
         for path in (case_text_path, json_output_path):
             try:
                 path.unlink()
@@ -852,6 +859,8 @@ def load_settings():
     return {
         "monitor_dir": Path(os.environ.get("MONITOR_DIR", base_dir / "monitor")),
         "work_dir": Path(os.environ.get("WORK_DIR", base_dir / "work")),
+        "keep_work_files": os.environ.get("KEEP_WORK_FILES", "").lower()
+        in {"1", "true", "yes"},
         "case_id_digits": int(os.environ.get("CASE_ID_DIGITS", "8") or "8"),
         "poll_interval": float(os.environ.get("POLL_INTERVAL", "2")),
         "process_existing": os.environ.get("PROCESS_EXISTING", "").lower()
