@@ -95,6 +95,77 @@ def login_if_needed(page, login_url, username, password, selectors):
         page.wait_for_load_state("load")
 
 
+def collect_page_content(page):
+    parts = []
+    main_url = page.url
+    parts.append(f"<!-- main frame url={main_url} -->")
+    parts.append(page.content())
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+        frame_url = frame.url or "about:blank"
+        if frame_url == "about:blank":
+            continue
+        try:
+            frame_content = frame.content()
+        except Exception as exc:
+            logging.debug("フレーム内容の取得に失敗しました: %s (%s)", frame_url, exc)
+            continue
+        parts.append(f"<!-- frame url={frame_url} -->")
+        parts.append(frame_content)
+    return "\n".join(parts)
+
+
+def collect_visible_text(page):
+    def extract_text(frame):
+        try:
+            return frame.evaluate(
+                """
+                () => {
+                  const parts = [];
+                  const walk = (node) => {
+                    if (!node) return;
+                    if (node.nodeType === Node.TEXT_NODE) {
+                      const text = node.textContent && node.textContent.trim();
+                      if (text) parts.push(text);
+                      return;
+                    }
+                    if (
+                      node.nodeType !== Node.ELEMENT_NODE &&
+                      node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE
+                    ) {
+                      return;
+                    }
+                    if (node.shadowRoot) walk(node.shadowRoot);
+                    for (const child of node.childNodes || []) {
+                      walk(child);
+                    }
+                  };
+                  walk(document.body || document.documentElement);
+                  return parts.join("\\n");
+                }
+                """
+            )
+        except Exception as exc:
+            logging.debug("テキスト抽出に失敗しました: %s (%s)", frame.url, exc)
+            return ""
+
+    parts = []
+    main_text = extract_text(page.main_frame)
+    if main_text:
+        parts.append(f"<!-- main frame url={page.url} -->")
+        parts.append(main_text)
+    for frame in page.frames:
+        if frame == page.main_frame:
+            continue
+        frame_text = extract_text(frame)
+        if frame_text:
+            frame_url = frame.url or "about:blank"
+            parts.append(f"<!-- frame url={frame_url} -->")
+            parts.append(frame_text)
+    return "\n".join(parts)
+
+
 def fetch_case_text(case_id, base_url, work_dir, browser_settings, login_settings):
     url = build_url(base_url, case_id)
     output_path = work_dir / f"{case_id}.txt"
@@ -142,7 +213,12 @@ def fetch_case_text(case_id, base_url, work_dir, browser_settings, login_setting
             if browser_settings["wait_seconds"] > 0:
                 logging.info("ページ表示後に%s秒待機します。", browser_settings["wait_seconds"])
                 page.wait_for_timeout(browser_settings["wait_seconds"] * 1000)
-            body_text = page.inner_text("body")
+            page_html = collect_page_content(page)
+            page_text = ""
+            if not page_html.strip():
+                logging.info("HTMLが空のためテキストを取得します。")
+                page_text = collect_visible_text(page)
+            body_text = page_html or page_text
         finally:
             if browser_settings["keep_open"]:
                 logging.info("ブラウザを閉じる前に待機します。Enterで終了します。")
