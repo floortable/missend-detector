@@ -19,7 +19,7 @@ from extract_case_entries import build_patterns, parse_entries
 from env_loader import load_dotenv
 
 
-CASE_ID_RE = re.compile(r"^(?P<case_id>\d{8})\.txt$")
+CASE_ID_RE = re.compile(r"^(?P<case_id>\d{8})(?:[:：].+)?\.txt$")
 META_LINE_RE = re.compile(r"^(【.*】|\[.*\])$")
 LOG_LINE_RE = re.compile(
     r"^\s*(\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}|INFO|ERROR|DEBUG|TRACE|WARN|WARNING)\b"
@@ -824,7 +824,9 @@ def monitor_directory(settings):
     # 追加依存を避けるためポーリングで監視する。
     monitor_dir = settings["monitor_dir"]
     monitor_dir.mkdir(parents=True, exist_ok=True)
-    case_id_re = re.compile(rf"^(?P<case_id>\d{{{settings['case_id_digits']}}})\.txt$")
+    case_id_re = re.compile(
+        rf"^(?P<case_id>\d{{{settings['case_id_digits']}}})(?:[:：].+)?\.txt$"
+    )
     logging.debug(
         "monitor_dir=%s process_existing=%s poll_interval=%s case_id_digits=%s",
         monitor_dir,
