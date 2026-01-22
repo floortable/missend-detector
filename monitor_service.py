@@ -19,7 +19,7 @@ from extract_case_entries import build_patterns, parse_entries
 from env_loader import load_dotenv
 
 
-CASE_ID_RE = re.compile(r"^(?P<case_id>\d{8})(?:[:：].+)?\.txt$")
+CASE_ID_RE = re.compile(r"^(?P<case_id>\d{8})(?:[:：](?P<title>.+))?\.txt$")
 META_LINE_RE = re.compile(r"^(【.*】|\[.*\])$")
 LOG_LINE_RE = re.compile(
     r"^\s*(\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}|INFO|ERROR|DEBUG|TRACE|WARN|WARNING)\b"
@@ -478,7 +478,7 @@ def append_llm_result(output_path, case_id, result, reason, model):
     workbook.save(output_path)
 
 
-def notify_teams(case_id, llm_text, llm_json, webhook_urls):
+def notify_teams(case_id, llm_text, llm_json, webhook_urls, title=None):
     if not webhook_urls:
         return
     if isinstance(webhook_urls, str):
@@ -488,55 +488,72 @@ def notify_teams(case_id, llm_text, llm_json, webhook_urls):
         return
     result, reason = parse_llm_judgement(llm_text)
     # 不一致アラートは専用のサマリーを使う。
-    summary = f"Case ID {case_id} {result or ''}".strip()
+    title_suffix = f" ({title})" if title else ""
+    summary = f"Case ID {case_id}{title_suffix} {result or ''}".strip()
     if result == "却下":
-        summary = f"Case ID {case_id} caseid mismatch"
+        summary = f"Case ID {case_id}{title_suffix} caseid mismatch"
     card_body = build_adaptive_card_body(
         case_id=case_id,
         result=result or "不明",
         reason=reason,
         llm_text=llm_text,
+        title=title,
     )
     send_adaptive_card(webhook_urls, card_body, summary=summary)
 
 
-def build_adaptive_card_body(case_id, result, reason, llm_text):
+def build_adaptive_card_body(case_id, result, reason, llm_text, title=None):
     # 既存の通知レイアウトに合わせてカードを組み立てる。
     case_url = build_url(os.environ.get("BASE_URL", "http://localhost:8080/"), case_id)
+    title_text = title.strip() if title else ""
     if result == "却下":
+        items = [
+            {
+                "type": "TextBlock",
+                "text": "🚨 受付番号不一致の可能性",
+                "size": "Large",
+                "weight": "Bolder",
+                "color": "Attention",
+                "wrap": True,
+            },
+            {
+                "type": "TextBlock",
+                "text": f"[Case #{case_id}]({case_url})",
+                "wrap": True,
+                "spacing": "Small",
+            },
+        ]
+        if title_text:
+            items.append(
+                {
+                    "type": "TextBlock",
+                    "text": f"タイトル: {title_text}",
+                    "wrap": True,
+                    "spacing": "Small",
+                }
+            )
+        items.extend(
+            [
+                {
+                    "type": "TextBlock",
+                    "text": "受付番号の不一致を検知しました。異なる受付番号への回答が申告されています。至急確認してください。",
+                    "wrap": True,
+                    "spacing": "Medium",
+                    "color": "Attention",
+                },
+                {
+                    "type": "TextBlock",
+                    "text": f"理由：{reason or llm_text}",
+                    "wrap": True,
+                    "spacing": "Small",
+                },
+            ]
+        )
         return [
             {
                 "type": "Container",
                 "style": "attention",
-                "items": [
-                    {
-                        "type": "TextBlock",
-                        "text": "🚨 受付番号不一致の可能性",
-                        "size": "Large",
-                        "weight": "Bolder",
-                        "color": "Attention",
-                        "wrap": True,
-                    },
-                    {
-                        "type": "TextBlock",
-                        "text": f"[Case #{case_id}]({case_url})",
-                        "wrap": True,
-                        "spacing": "Small",
-                    },
-                    {
-                        "type": "TextBlock",
-                        "text": "LLMが caseid mismatch を検知しました。異なる受付番号への回答が申告されています。至急確認してください。",
-                        "wrap": True,
-                        "spacing": "Medium",
-                        "color": "Attention",
-                    },
-                    {
-                        "type": "TextBlock",
-                        "text": f"理由：{reason or llm_text}",
-                        "wrap": True,
-                        "spacing": "Small",
-                    },
-                ],
+                "items": items,
                 "bleed": True,
             }
         ]
@@ -558,6 +575,15 @@ def build_adaptive_card_body(case_id, result, reason, llm_text):
                 "spacing": "Small",
             },
         ]
+        if title_text:
+            items.append(
+                {
+                    "type": "TextBlock",
+                    "text": f"タイトル: {title_text}",
+                    "wrap": True,
+                    "spacing": "Small",
+                }
+            )
         if reason:
             items.append(
                 {"type": "TextBlock", "text": f"理由：{reason}", "wrap": True}
@@ -567,31 +593,32 @@ def build_adaptive_card_body(case_id, result, reason, llm_text):
         return [{"type": "Container", "items": items, "bleed": True}]
 
     emoji = "❔"
-    return [
+    items = [
         {
-            "type": "Container",
-            "items": [
-                {
-                    "type": "TextBlock",
-                    "text": f"{emoji} 判定不明",
-                    "size": "Large",
-                    "weight": "Bolder",
-                    "wrap": True,
-                },
-                {
-                    "type": "TextBlock",
-                    "text": f"[Case #{case_id}]({case_url})",
-                    "wrap": True,
-                    "spacing": "Small",
-                },
-                {
-                    "type": "TextBlock",
-                    "text": llm_text,
-                    "wrap": True,
-                },
-            ],
-        }
+            "type": "TextBlock",
+            "text": f"{emoji} 判定不明",
+            "size": "Large",
+            "weight": "Bolder",
+            "wrap": True,
+        },
+        {
+            "type": "TextBlock",
+            "text": f"[Case #{case_id}]({case_url})",
+            "wrap": True,
+            "spacing": "Small",
+        },
     ]
+    if title_text:
+        items.append(
+            {
+                "type": "TextBlock",
+                "text": f"タイトル: {title_text}",
+                "wrap": True,
+                "spacing": "Small",
+            }
+        )
+    items.append({"type": "TextBlock", "text": llm_text, "wrap": True})
+    return [{"type": "Container", "items": items}]
 
 
 def send_adaptive_card(webhooks, body, summary, success_label=None):
@@ -643,7 +670,7 @@ def wait_for_stable_size(path, retries=5, interval=1.0):
     return True
 
 
-def process_case(case_id, settings):
+def process_case(case_id, settings, title=None):
     work_dir = settings["work_dir"]
     work_dir.mkdir(parents=True, exist_ok=True)
     case_text_path = work_dir / f"{case_id}.txt"
@@ -707,7 +734,8 @@ def process_case(case_id, settings):
             # 調査用に冒頭3行の宣言部分を記録する。
             logging.debug("case_id=%s declaration head=%r", case_id, (entries[-1].get("data") or "").splitlines()[:3])
             if settings["teams"]["enabled"]:
-                summary = f"Case ID {case_id} caseid declaration {status}"
+                title_suffix = f" ({title})" if title else ""
+                summary = f"Case ID {case_id}{title_suffix} caseid declaration {status}"
                 body = [
                     {
                         "type": "Container",
@@ -723,6 +751,11 @@ def process_case(case_id, settings):
                             {
                                 "type": "TextBlock",
                                 "text": f"Case #{case_id}",
+                                "wrap": True,
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": f"タイトル: {title}" if title else "",
                                 "wrap": True,
                             },
                             {
@@ -794,7 +827,7 @@ def process_case(case_id, settings):
         if str(decision_value or "").lower() in {"却下", "reject", "rejected", "ng", "fail"}:
             webhooks.append(settings["teams"]["reject"])
         if settings["teams"]["enabled"]:
-            notify_teams(case_id, llm_text, llm_json, webhooks)
+            notify_teams(case_id, llm_text, llm_json, webhooks, title=title)
         append_llm_result(
             settings["llm"]["result_xlsx"],
             case_id,
@@ -825,7 +858,7 @@ def monitor_directory(settings):
     monitor_dir = settings["monitor_dir"]
     monitor_dir.mkdir(parents=True, exist_ok=True)
     case_id_re = re.compile(
-        rf"^(?P<case_id>\d{{{settings['case_id_digits']}}})(?:[:：].+)?\.txt$"
+        rf"^(?P<case_id>\d{{{settings['case_id_digits']}}})(?:[:：](?P<title>.+))?\.txt$"
     )
     logging.debug(
         "monitor_dir=%s process_existing=%s poll_interval=%s case_id_digits=%s",
@@ -860,7 +893,9 @@ def monitor_directory(settings):
                 if not wait_for_stable_size(path):
                     continue
                 case_id = match.group("case_id")
-                process_case(case_id, settings)
+                title = match.groupdict().get("title")
+                title = title.strip() if title else None
+                process_case(case_id, settings, title=title)
                 processed.add(path)
                 try:
                     path.unlink()
