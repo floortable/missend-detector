@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
+from requests.utils import should_bypass_proxies
 from playwright.sync_api import sync_playwright
 
 from extract_case_entries import build_patterns, parse_entries
@@ -335,6 +336,20 @@ def build_llm_url(base_url):
     return f"{base}/chat/completions"
 
 
+def build_requests_proxies(url):
+    no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
+    if no_proxy and should_bypass_proxies(url, no_proxy):
+        return {"http": None, "https": None}
+    proxies = {}
+    for scheme in ("http", "https"):
+        proxy = os.environ.get(f"{scheme.upper()}_PROXY") or os.environ.get(
+            f"{scheme}_proxy"
+        )
+        if proxy:
+            proxies[scheme] = proxy
+    return proxies or None
+
+
 def load_prompt_template(settings):
     if settings.get("prompt_file"):
         path = Path(settings["prompt_file"])
@@ -367,13 +382,15 @@ def call_llm(case_id, entries_payload, settings):
     if settings["api_key"]:
         headers["Authorization"] = f"Bearer {settings['api_key']}"
 
+    llm_url = build_llm_url(settings["base_url"])
     ca_bundle = settings.get("ca_bundle") or None
     response = requests.post(
-        build_llm_url(settings["base_url"]),
+        llm_url,
         headers=headers,
         json=request_body,
         timeout=settings["timeout"],
         verify=ca_bundle or True,
+        proxies=build_requests_proxies(llm_url),
     )
     response.raise_for_status()
     data = response.json()
@@ -600,7 +617,12 @@ def send_adaptive_card(webhooks, body, summary, success_label=None):
     for webhook in webhooks:
         if not webhook:
             continue
-        requests.post(webhook, json=card, timeout=10)
+        requests.post(
+            webhook,
+            json=card,
+            timeout=10,
+            proxies=build_requests_proxies(webhook),
+        )
 
 
 def wait_for_stable_size(path, retries=5, interval=1.0):

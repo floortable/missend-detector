@@ -160,6 +160,8 @@ python3 monitor_service.py
 - `LLM_TIMEOUT` (default: `60`)
 - `TEAMS_WEBHOOK_URL`
 - `TEAMS_REJECT_WEBHOOK_URL`
+- `HTTP_PROXY` / `HTTPS_PROXY` (requests経由のHTTP/HTTPSプロキシ)
+- `NO_PROXY` (プロキシ除外ホスト。例: `localhost,127.0.0.1`)
 
 ### LLMの戻り値について
 
