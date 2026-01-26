@@ -434,6 +434,16 @@ def parse_llm_judgement(text):
     return result, reason
 
 
+def parse_retry_interval(raw):
+    if raw is None:
+        return 0.0
+    try:
+        value = float(str(raw).strip() or "0")
+    except ValueError:
+        return 0.0
+    return value if value >= 0 else 0.0
+
+
 def validate_caseid_declaration(entries, case_id, digits):
     # 回答冒頭(最大3行)からcaseid宣言を抽出・確認する。
     answer_text = (entries[-1].get("data") or "").strip()
@@ -677,53 +687,74 @@ def process_case(case_id, settings, title=None):
     json_output_path = work_dir / f"{case_id}.json"
 
     try:
-        case_text_path = fetch_case_text(
-            case_id,
-            base_url=settings["base_url"],
-            work_dir=work_dir,
-            browser_settings=settings["browser"],
-            login_settings=settings["login"],
-        )
+        retry_interval = settings["case_fetch_retry_interval"]
+        retry_count = settings["case_fetch_retry_count"]
+        attempt = 0
+        while True:
+            case_text_path = fetch_case_text(
+                case_id,
+                base_url=settings["base_url"],
+                work_dir=work_dir,
+                browser_settings=settings["browser"],
+                login_settings=settings["login"],
+            )
 
-        # 取得に失敗してパスが無ければ以降を行わない。
-        if not case_text_path.exists():
-            logging.error("Case ID %s: fetched file not found: %s", case_id, case_text_path)
-            return
-
-        case_text = case_text_path.read_text(encoding="utf-8")
-        logging.debug("Case ID %s: fetched text length=%s", case_id, len(case_text))
-        logging.debug("Case ID %s: fetched text preview=%r", case_id, case_text[:800])
-
-        entries = build_case_json(case_text, settings["max_chars"], settings["log_filter"])
-        logging.debug("Case ID %s: extracted entries=%s", case_id, len(entries))
-        if not entries:
-            logging.info("case_id=%s result=skipped reason=no_entries", case_id)
-            return
-        if entries[-1]["type"].lower() != "answer":
-            if settings["llm"]["allow_partial"]:
-                last_answer_index = None
-                for idx in range(len(entries) - 1, -1, -1):
-                    if entries[idx]["type"].lower() == "answer":
-                        last_answer_index = idx
-                        break
-                if last_answer_index is None:
-                    logging.info(
-                        "case_id=%s result=skipped reason=no_answer_entry",
-                        case_id,
-                    )
-                    return
-                entries = entries[: last_answer_index + 1]
-                logging.info(
-                    "case_id=%s result=partial reason=newer_non_answer entries=%s",
+            # 取得に失敗してパスが無ければ以降を行わない。
+            if not case_text_path.exists():
+                logging.error(
+                    "Case ID %s: fetched file not found: %s",
                     case_id,
-                    len(entries),
-                )
-            else:
-                logging.info(
-                    "case_id=%s result=skipped reason=newer_non_answer",
-                    case_id,
+                    case_text_path,
                 )
                 return
+
+            case_text = case_text_path.read_text(encoding="utf-8")
+            logging.debug("Case ID %s: fetched text length=%s", case_id, len(case_text))
+            logging.debug("Case ID %s: fetched text preview=%r", case_id, case_text[:800])
+
+            entries = build_case_json(case_text, settings["max_chars"], settings["log_filter"])
+            logging.debug("Case ID %s: extracted entries=%s", case_id, len(entries))
+            retry_reason = None
+            if not entries:
+                retry_reason = "no_entries"
+            elif entries[-1]["type"].lower() != "answer":
+                if settings["llm"]["allow_partial"]:
+                    last_answer_index = None
+                    for idx in range(len(entries) - 1, -1, -1):
+                        if entries[idx]["type"].lower() == "answer":
+                            last_answer_index = idx
+                            break
+                    if last_answer_index is None:
+                        retry_reason = "no_answer_entry"
+                    else:
+                        entries = entries[: last_answer_index + 1]
+                        logging.info(
+                            "case_id=%s result=partial reason=newer_non_answer entries=%s",
+                            case_id,
+                            len(entries),
+                        )
+                else:
+                    retry_reason = "newer_non_answer"
+            if retry_reason:
+                if attempt < retry_count:
+                    wait_seconds = retry_interval
+                    logging.info(
+                        "case_id=%s result=retry reason=%s wait=%s attempt=%s",
+                        case_id,
+                        retry_reason,
+                        wait_seconds,
+                        attempt + 1,
+                    )
+                    time.sleep(wait_seconds)
+                    attempt += 1
+                    continue
+                logging.info(
+                    "case_id=%s result=skipped reason=%s",
+                    case_id,
+                    retry_reason,
+                )
+                return
+            break
         status, found_ids = validate_caseid_declaration(
             entries, case_id, settings["case_id_digits"]
         )
@@ -924,8 +955,12 @@ def monitor_directory(settings):
 
 def load_settings():
     # 環境変数とデフォルト値から設定を組み立てる。
+    retry_interval = parse_retry_interval(
+        os.environ.get("CASE_FETCH_RETRY_INTERVAL", "30")
+    )
+    retry_count = int(os.environ.get("CASE_FETCH_RETRY_COUNT", "2") or "2")
     base_dir = Path(__file__).resolve().parent
-    return {
+    settings = {
         "monitor_dir": Path(os.environ.get("MONITOR_DIR", base_dir / "monitor")),
         "work_dir": Path(os.environ.get("WORK_DIR", base_dir / "work")),
         "keep_work_files": os.environ.get("KEEP_WORK_FILES", "").lower()
@@ -936,6 +971,8 @@ def load_settings():
         in {"1", "true", "yes"},
         "base_url": os.environ.get("BASE_URL", "http://localhost:8080/"),
         "max_chars": int(os.environ.get("MAX_CHARS", "6000")),
+        "case_fetch_retry_interval": retry_interval,
+        "case_fetch_retry_count": retry_count,
         "log_filter": {
             "enabled": os.environ.get("LOG_FILTER_ENABLED", "true").lower()
             in {"1", "true", "yes"},
@@ -1007,6 +1044,7 @@ def load_settings():
             "backup_count": int(os.environ.get("LOG_BACKUP_COUNT", "3")),
         },
     }
+    return settings
 
 
 def main():

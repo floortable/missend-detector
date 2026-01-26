@@ -141,6 +141,8 @@ python3 monitor_service.py
 - `POLL_INTERVAL` (default: `2`)
 - `PROCESS_EXISTING` (default: `false`)
 - `MAX_CHARS` (default: `6000`)
+- `CASE_FETCH_RETRY_INTERVAL` (default: `30`)
+- `CASE_FETCH_RETRY_COUNT` (default: `2`)
 - `BASE_URL` (default: `http://localhost:8080/`)
 - `LOGIN_URL` (default: `http://localhost:8080/login`)
 - `LOGIN_USERNAME` (default: `testuser`)
