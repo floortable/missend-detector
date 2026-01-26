@@ -732,7 +732,13 @@ def process_case(case_id, settings, title=None):
                 "case_id=%s result=%s found=%s", case_id, status, found_ids
             )
             # 調査用に冒頭3行の宣言部分を記録する。
-            logging.debug("case_id=%s declaration head=%r", case_id, (entries[-1].get("data") or "").splitlines()[:3])
+            logging.debug(
+                "case_id=%s declaration head=%r",
+                case_id,
+                (entries[-1].get("data") or "").splitlines()[:3],
+            )
+            if status == "caseid_missing":
+                return
             if settings["teams"]["enabled"]:
                 title_suffix = f" ({title})" if title else ""
                 summary = f"Case ID {case_id}{title_suffix} caseid declaration {status}"
