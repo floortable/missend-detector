@@ -458,6 +458,27 @@ def validate_caseid_declaration(entries, case_id, digits):
     return "ok", found
 
 
+def strip_declaration_lines(answer_text, case_id, title, digits):
+    lines = (answer_text or "").splitlines()
+    if not lines:
+        return answer_text
+    max_head = min(3, len(lines))
+    pattern = re.compile(rf"\d{{{digits}}}")
+    trimmed = []
+    removed = False
+    for idx, line in enumerate(lines):
+        if idx < max_head:
+            has_case = bool(pattern.search(line)) and case_id in pattern.findall(line)
+            has_title = bool(title) and title in line
+            if has_case or has_title:
+                removed = True
+                continue
+        trimmed.append(line)
+    if not removed:
+        return answer_text
+    return "\n".join(trimmed).lstrip()
+
+
 def append_llm_result(output_path, case_id, result, reason, model):
     if not output_path:
         return
@@ -685,6 +706,8 @@ def process_case(case_id, settings, title=None):
     work_dir.mkdir(parents=True, exist_ok=True)
     case_text_path = work_dir / f"{case_id}.txt"
     json_output_path = work_dir / f"{case_id}.json"
+    skipped = False
+    decision_lower = ""
 
     try:
         retry_interval = settings["case_fetch_retry_interval"]
@@ -753,6 +776,7 @@ def process_case(case_id, settings, title=None):
                     case_id,
                     retry_reason,
                 )
+                skipped = True
                 return
             break
         status, found_ids = validate_caseid_declaration(
@@ -769,6 +793,7 @@ def process_case(case_id, settings, title=None):
                 (entries[-1].get("data") or "").splitlines()[:3],
             )
             if status == "caseid_missing":
+                skipped = True
                 return
             if settings["teams"]["enabled"]:
                 title_suffix = f" ({title})" if title else ""
@@ -815,8 +840,13 @@ def process_case(case_id, settings, title=None):
                     summary=summary,
                 )
             return
-        output_path = work_dir / f"{case_id}.json"
-        output_path.write_text(
+        # caseid判定後、冒頭の宣言行をLLM入力から除外する。
+        answer_text = entries[-1].get("data") or ""
+        entries[-1]["data"] = strip_declaration_lines(
+            answer_text, case_id, title, settings["case_id_digits"]
+        )
+
+        json_output_path.write_text(
             json.dumps(entries, ensure_ascii=False, indent=4),
             encoding="utf-8",
         )
@@ -876,11 +906,28 @@ def process_case(case_id, settings, title=None):
     except Exception:
         logging.exception("Case ID %s: failed to process", case_id)
     finally:
-        # KEEP_WORK_FILES=true の場合は調査用に作業ファイルを残す。
-        if settings.get("keep_work_files"):
-            logging.debug("作業ファイルを保持します: %s, %s", case_text_path, json_output_path)
-            return
-        for path in (case_text_path, json_output_path):
+        keep_all = settings.get("keep_work_files")
+        keep_on_skip = skipped and settings.get("keep_work_files_on_skip")
+        keep_case_text = keep_all or keep_on_skip
+        keep_json = keep_all or keep_on_skip
+        json_mode = settings.get("keep_llm_json_mode", "none")
+        if json_mode == "always":
+            keep_json = True
+        elif json_mode == "reject" and decision_lower in {
+            "却下",
+            "reject",
+            "rejected",
+            "ng",
+            "fail",
+        }:
+            keep_json = True
+        for path, keep in (
+            (case_text_path, keep_case_text),
+            (json_output_path, keep_json),
+        ):
+            if keep:
+                logging.debug("作業ファイルを保持します: %s", path)
+                continue
             try:
                 path.unlink()
                 logging.debug("作業ファイルを削除しました: %s", path)
@@ -965,6 +1012,9 @@ def load_settings():
         "work_dir": Path(os.environ.get("WORK_DIR", base_dir / "work")),
         "keep_work_files": os.environ.get("KEEP_WORK_FILES", "").lower()
         in {"1", "true", "yes"},
+        "keep_work_files_on_skip": os.environ.get("KEEP_WORK_FILES_ON_SKIP", "").lower()
+        in {"1", "true", "yes"},
+        "keep_llm_json_mode": os.environ.get("KEEP_LLM_JSON_MODE", "none").lower(),
         "case_id_digits": int(os.environ.get("CASE_ID_DIGITS", "8") or "8"),
         "poll_interval": float(os.environ.get("POLL_INTERVAL", "2")),
         "process_existing": os.environ.get("PROCESS_EXISTING", "").lower()
@@ -1044,6 +1094,8 @@ def load_settings():
             "backup_count": int(os.environ.get("LOG_BACKUP_COUNT", "3")),
         },
     }
+    if settings["keep_llm_json_mode"] not in {"none", "always", "reject"}:
+        settings["keep_llm_json_mode"] = "none"
     return settings
 
 
