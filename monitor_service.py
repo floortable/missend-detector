@@ -5,6 +5,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import re
 import time
+import unicodedata
 import signal
 import sys
 from datetime import datetime
@@ -458,20 +459,35 @@ def validate_caseid_declaration(entries, case_id, digits):
     return "ok", found
 
 
-def strip_declaration_lines(answer_text, case_id, title, digits):
+def strip_declaration_lines(answer_text, case_id, title, digits, keywords):
     lines = (answer_text or "").splitlines()
     if not lines:
         return answer_text
+    norm_case_id = unicodedata.normalize("NFKC", case_id or "")
+    norm_title = unicodedata.normalize("NFKC", title or "") if title else ""
     max_head = min(3, len(lines))
     pattern = re.compile(rf"\d{{{digits}}}")
     trimmed = []
     removed = False
+    removed_once = False
+    keyword_pattern = None
+    if keywords:
+        escaped = [re.escape(word) for word in keywords if word]
+        if escaped:
+            keyword_pattern = re.compile("|".join(escaped), re.I)
     for idx, line in enumerate(lines):
         if idx < max_head:
-            has_case = bool(pattern.search(line)) and case_id in pattern.findall(line)
-            has_title = bool(title) and title in line
-            if has_case or has_title:
+            norm_line = unicodedata.normalize("NFKC", line)
+            found_ids = pattern.findall(norm_line)
+            has_case = bool(found_ids) and norm_case_id in found_ids
+            has_case_keyword = False
+            if norm_case_id and norm_case_id in norm_line:
+                if keyword_pattern is not None:
+                    has_case_keyword = bool(keyword_pattern.search(norm_line))
+            has_title = bool(norm_title) and norm_title in norm_line
+            if (has_case or has_case_keyword or has_title) and not removed_once:
                 removed = True
+                removed_once = True
                 continue
         trimmed.append(line)
     if not removed:
@@ -843,7 +859,11 @@ def process_case(case_id, settings, title=None):
         # caseid判定後、冒頭の宣言行をLLM入力から除外する。
         answer_text = entries[-1].get("data") or ""
         entries[-1]["data"] = strip_declaration_lines(
-            answer_text, case_id, title, settings["case_id_digits"]
+            answer_text,
+            case_id,
+            title,
+            settings["case_id_digits"],
+            settings.get("case_id_keywords"),
         )
 
         json_output_path.write_text(
@@ -1023,6 +1043,13 @@ def load_settings():
         "max_chars": int(os.environ.get("MAX_CHARS", "6000")),
         "case_fetch_retry_interval": retry_interval,
         "case_fetch_retry_count": retry_count,
+        "case_id_keywords": [
+            keyword.strip()
+            for keyword in os.environ.get(
+                "CASE_ID_KEYWORDS", "case,ケース,受付番号,案件,チケット"
+            ).split(",")
+            if keyword.strip()
+        ],
         "log_filter": {
             "enabled": os.environ.get("LOG_FILTER_ENABLED", "true").lower()
             in {"1", "true", "yes"},
