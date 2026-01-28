@@ -856,15 +856,18 @@ def process_case(case_id, settings, title=None):
                     summary=summary,
                 )
             return
-        # caseid判定後、冒頭の宣言行をLLM入力から除外する。
-        answer_text = entries[-1].get("data") or ""
-        entries[-1]["data"] = strip_declaration_lines(
-            answer_text,
-            case_id,
-            title,
-            settings["case_id_digits"],
-            settings.get("case_id_keywords"),
-        )
+        # caseid判定後、全ての回答から冒頭の宣言行をLLM入力から除外する。
+        for entry in entries:
+            if entry.get("type", "").lower() != "answer":
+                continue
+            answer_text = entry.get("data") or ""
+            entry["data"] = strip_declaration_lines(
+                answer_text,
+                case_id,
+                title,
+                settings["case_id_digits"],
+                settings.get("case_id_keywords"),
+            )
 
         json_output_path.write_text(
             json.dumps(entries, ensure_ascii=False, indent=4),
