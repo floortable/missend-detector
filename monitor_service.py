@@ -459,7 +459,7 @@ def validate_caseid_declaration(entries, case_id, digits):
     return "ok", found
 
 
-def strip_declaration_lines(answer_text, case_id, title, digits, keywords):
+def strip_declaration_lines(answer_text, case_id, title, digits, keywords, trailing_lines):
     lines = (answer_text or "").splitlines()
     if not lines:
         return answer_text
@@ -475,7 +475,11 @@ def strip_declaration_lines(answer_text, case_id, title, digits, keywords):
         escaped = [re.escape(word) for word in keywords if word]
         if escaped:
             keyword_pattern = re.compile("|".join(escaped), re.I)
+    skip_until = -1
     for idx, line in enumerate(lines):
+        if idx <= skip_until:
+            removed = True
+            continue
         if idx < max_head:
             norm_line = unicodedata.normalize("NFKC", line)
             found_ids = pattern.findall(norm_line)
@@ -488,6 +492,7 @@ def strip_declaration_lines(answer_text, case_id, title, digits, keywords):
             if (has_case or has_case_keyword or has_title) and not removed_once:
                 removed = True
                 removed_once = True
+                skip_until = max(skip_until, idx + max(0, trailing_lines))
                 continue
         trimmed.append(line)
     if not removed:
@@ -867,6 +872,7 @@ def process_case(case_id, settings, title=None):
                 title,
                 settings["case_id_digits"],
                 settings.get("case_id_keywords"),
+                settings.get("case_id_strip_trailing_lines", 1),
             )
 
         json_output_path.write_text(
@@ -1053,6 +1059,10 @@ def load_settings():
             ).split(",")
             if keyword.strip()
         ],
+        "case_id_strip_trailing_lines": max(
+            0,
+            int(os.environ.get("CASE_ID_STRIP_TRAILING_LINES", "1") or "1"),
+        ),
         "log_filter": {
             "enabled": os.environ.get("LOG_FILTER_ENABLED", "true").lower()
             in {"1", "true", "yes"},
