@@ -141,7 +141,6 @@ python3 monitor_service.py
 - `KEEP_WORK_FILES` (default: `false`)
 - `KEEP_WORK_FILES_ON_SKIP` (default: `false`)
 - `KEEP_LLM_JSON_MODE` (default: `none`, values: `none`/`always`/`reject`)
-- `CASE_ID_KEYWORDS` (default: `case,ケース,受付番号,案件,チケット`)
 - `CASE_ID_STRIP_TRAILING_LINES` (default: `1`)
 - `POLL_INTERVAL` (default: `2`)
 - `PROCESS_EXISTING` (default: `false`)

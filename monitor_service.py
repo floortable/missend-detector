@@ -459,22 +459,16 @@ def validate_caseid_declaration(entries, case_id, digits):
     return "ok", found
 
 
-def strip_declaration_lines(answer_text, case_id, title, digits, keywords, trailing_lines):
+def strip_declaration_lines(answer_text, case_id, title, digits, trailing_lines):
     lines = (answer_text or "").splitlines()
     if not lines:
         return answer_text
-    norm_case_id = unicodedata.normalize("NFKC", case_id or "")
     norm_title = unicodedata.normalize("NFKC", title or "") if title else ""
     max_head = min(3, len(lines))
     pattern = re.compile(rf"\d{{{digits}}}")
     trimmed = []
     removed = False
     removed_once = False
-    keyword_pattern = None
-    if keywords:
-        escaped = [re.escape(word) for word in keywords if word]
-        if escaped:
-            keyword_pattern = re.compile("|".join(escaped), re.I)
     skip_until = -1
     for idx, line in enumerate(lines):
         if idx <= skip_until:
@@ -482,14 +476,9 @@ def strip_declaration_lines(answer_text, case_id, title, digits, keywords, trail
             continue
         if idx < max_head:
             norm_line = unicodedata.normalize("NFKC", line)
-            found_ids = pattern.findall(norm_line)
-            has_case = bool(found_ids) and norm_case_id in found_ids
-            has_case_keyword = False
-            if norm_case_id and norm_case_id in norm_line:
-                if keyword_pattern is not None:
-                    has_case_keyword = bool(keyword_pattern.search(norm_line))
+            has_case = bool(pattern.search(norm_line))
             has_title = bool(norm_title) and norm_title in norm_line
-            if (has_case or has_case_keyword or has_title) and not removed_once:
+            if (has_case or has_title) and not removed_once:
                 removed = True
                 removed_once = True
                 skip_until = max(skip_until, idx + max(0, trailing_lines))
@@ -871,7 +860,6 @@ def process_case(case_id, settings, title=None):
                 case_id,
                 title,
                 settings["case_id_digits"],
-                settings.get("case_id_keywords"),
                 settings.get("case_id_strip_trailing_lines", 1),
             )
 
@@ -1052,13 +1040,6 @@ def load_settings():
         "max_chars": int(os.environ.get("MAX_CHARS", "6000")),
         "case_fetch_retry_interval": retry_interval,
         "case_fetch_retry_count": retry_count,
-        "case_id_keywords": [
-            keyword.strip()
-            for keyword in os.environ.get(
-                "CASE_ID_KEYWORDS", "case,ケース,受付番号,案件,チケット"
-            ).split(",")
-            if keyword.strip()
-        ],
         "case_id_strip_trailing_lines": max(
             0,
             int(os.environ.get("CASE_ID_STRIP_TRAILING_LINES", "1") or "1"),
